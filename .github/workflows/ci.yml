@@ -1,0 +1,65 @@
+"""GitHub Actions CI workflow."""
+name: CI
+
+on:
+  push:
+    branches: [main, feat/preprod]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: siqg
+          POSTGRES_PASSWORD: siqg
+          POSTGRES_DB: siqg
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          cd gateway
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Run tests
+        run: |
+          cd gateway
+          pytest tests/ -v --cov=. --cov-report=term-missing --cov-report=xml
+        env:
+          DB_PRIMARY_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
+          DB_REPLICA_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
+          REDIS_URL: redis://localhost:6379/0
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./gateway/coverage.xml

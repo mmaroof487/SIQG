@@ -1,0 +1,80 @@
+services:
+  gateway:
+    build: ./gateway
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./gateway:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - queryx_net
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: siqg
+      POSTGRES_PASSWORD: siqg
+      POSTGRES_DB: siqg
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siqg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - queryx_net
+
+  postgres_replica:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: siqg
+      POSTGRES_PASSWORD: siqg
+      POSTGRES_DB: siqg
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siqg"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - queryx_net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - queryx_net
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3001:3001"
+    depends_on:
+      - gateway
+    volumes:
+      - ./frontend:/app
+    networks:
+      - queryx_net
+
+volumes:
+  pg_data:
+
+networks:
+  queryx_net:
+    driver: bridge
