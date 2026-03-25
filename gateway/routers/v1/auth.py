@@ -1,16 +1,17 @@
 """Authentication router - Login and token generation."""
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from datetime import datetime
+from sqlalchemy import select
 from middleware.security.auth import (
     create_jwt,
     verify_password,
     hash_password,
+)
+from middleware.security.brute_force import (
+    check_brute_force,
     record_failed_attempt,
     record_successful_attempt,
-    check_brute_force,
 )
-from middleware.security.brute_force import check_brute_force
 from models import User
 from utils.db import PrimarySession
 from utils.logger import get_logger
@@ -21,6 +22,12 @@ logger = get_logger(__name__)
 
 class LoginRequest(BaseModel):
     username: str
+    password: str
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    email: str
     password: str
 
 
@@ -40,11 +47,9 @@ async def login(request: Request, credentials: LoginRequest):
 
     # Find user in DB
     async with PrimarySession() as session:
-        result = await session.execute(
-            "SELECT * FROM users WHERE username = %s",
-            (credentials.username,),
-        )
-        user = result.mappings().first() if result else None
+        stmt = select(User).where(User.username == credentials.username)
+        result = await session.execute(stmt)
+        user = result.scalars().first()
 
     if not user:
         await record_failed_attempt(request, credentials.username)
@@ -52,7 +57,7 @@ async def login(request: Request, credentials: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     # Verify password
-    if not verify_password(credentials.password, user["hashed_password"]):
+    if not verify_password(credentials.password, user.hashed_password):
         await record_failed_attempt(request, credentials.username)
         logger.warning(f"Login failed: invalid password - {credentials.username}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -61,26 +66,14 @@ async def login(request: Request, credentials: LoginRequest):
     await record_successful_attempt(request, credentials.username)
 
     # Create token
-    token = create_jwt(str(user["id"]), user["role"])
+    token = create_jwt(str(user.id), user.role)
 
-    logger.info(f"Login successful: {credentials.username} ({user['role']})")
+    logger.info(f"Login successful: {credentials.username} ({user.role})")
 
     return TokenResponse(
         access_token=token,
-        role=user["role"],
+        role=user.role,
     )
-
-
-class RegisterRequest(BaseModel):
-    username: str
-    email: str
-    password: str
-
-
-class RegisterRequest(BaseModel):
-    username: str
-    email: str
-    password: str
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -99,9 +92,11 @@ async def register(request: Request, data: RegisterRequest):
     try:
         async with PrimarySession() as session:
             # Check if user already exists
-            stmt = "SELECT id FROM users WHERE username = %s OR email = %s"
-            result = await session.execute(stmt, (data.username, data.email))
-            if result.fetchone():
+            stmt = select(User).where(
+                (User.username == data.username) | (User.email == data.email)
+            )
+            result = await session.execute(stmt)
+            if result.scalars().first():
                 raise HTTPException(status_code=400, detail="User already exists")
 
             user = User(
@@ -112,6 +107,7 @@ async def register(request: Request, data: RegisterRequest):
             )
             session.add(user)
             await session.commit()
+            await session.refresh(user)
 
             # Create token
             token = create_jwt(str(user.id), user.role)
@@ -126,19 +122,3 @@ async def register(request: Request, data: RegisterRequest):
     except Exception as e:
         logger.error(f"Registration error: {e}")
         raise HTTPException(status_code=500, detail="Registration failed")
-            session.add(user)
-            await session.commit()
-            await session.refresh(user)
-        except Exception as e:
-            logger.warning(f"Registration failed: {e}")
-            raise HTTPException(status_code=400, detail="Username or email already exists")
-
-    # Create token
-    token = create_jwt(str(user.id), user.role)
-
-    logger.info(f"Registration successful: {data.username}")
-
-    return TokenResponse(
-        access_token=token,
-        role=user.role,
-    )

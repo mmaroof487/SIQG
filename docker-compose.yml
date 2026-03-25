@@ -18,15 +18,15 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: siqg
-      POSTGRES_PASSWORD: siqg
-      POSTGRES_DB: siqg
+      POSTGRES_USER: queryx
+      POSTGRES_PASSWORD: queryx
+      POSTGRES_DB: queryx
     ports:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U siqg"]
+      test: ["CMD-SHELL", "pg_isready -U queryx"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -36,13 +36,13 @@ services:
   postgres_replica:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: siqg
-      POSTGRES_PASSWORD: siqg
-      POSTGRES_DB: siqg
+      POSTGRES_USER: queryx
+      POSTGRES_PASSWORD: queryx
+      POSTGRES_DB: queryx
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U siqg"]
+      test: ["CMD-SHELL", "pg_isready -U queryx"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -61,16 +61,16 @@ services:
     networks:
       - queryx_net
 
-  frontend:
-    build: ./frontend
-    ports:
-      - "3001:3001"
-    depends_on:
-      - gateway
-    volumes:
-      - ./frontend:/app
-    networks:
-      - queryx_net
+  # frontend:
+  #   build: ./frontend
+  #   ports:
+  #     - "3001:3001"
+  #   depends_on:
+  #     - gateway
+  #   volumes:
+  #     - ./frontend:/app
+  #   networks:
+  #     - queryx_net
 
 volumes:
   pg_data:

@@ -2,8 +2,11 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from typing import Optional, Any, List
+from sqlalchemy import select, text
 import uuid
 import asyncpg
+import time
+from config import settings
 from middleware.security.auth import get_current_user
 from middleware.security.validator import validate_query
 from middleware.security.rate_limiter import check_rate_limit
@@ -39,29 +42,29 @@ async def execute_query(
 ):
     """
     Execute a query through the full 4-layer pipeline.
-    
+
     Layer 1: Security (done in auth dependency)
     Layer 2: Performance checks (fingerprinting, cache)
     Layer 3: Execution (routing, timeout)
     Layer 4: Observability (audit log, metrics)
     """
-    
+
     trace_id = str(uuid.uuid4())
     request.state.trace_id = trace_id
-    
+
     logger.info(f"[{trace_id}] Query: {payload.query[:100]}")
-    
+
     try:
         # === LAYER 1: SECURITY ===
         # Validate query
         await validate_query(payload.query)
-        
+
         # Check rate limit
         await check_rate_limit(request, request.state.user_id)
-        
+
         # Check RBAC
         await check_rbac(request)
-        
+
         # === DRY RUN MODE ===
         if payload.dry_run:
             return QueryResult(
@@ -71,32 +74,27 @@ async def execute_query(
                 rows_count=0,
                 latency_ms=0,
             )
-        
+
         # === LAYER 3: EXECUTION ===
-        # For now, simple execution on replica (if SELECT) or primary (if INSERT)
+        # Determine if SELECT (read) or INSERT/UPDATE (write)
         is_select = payload.query.strip().upper().startswith("SELECT")
-        
-        # Get connection
-        session_class = ReplicaSession if is_select else PrimarySession
-        
-        import time
+
         start_time = time.time()
-        
+        rows_dict = []
+
+        # Use SQLAlchemy connection to execute raw SQL via text()
+        session_class = ReplicaSession if is_select else PrimarySession
+
         async with session_class() as session:
-            # Convert SQLAlchemy text query to raw asyncpg
             if is_select:
-                # Use replica
-                result = await session.execute(payload.query)
-                rows = result.mappings().all()
+                result = await session.execute(text(payload.query))
+                rows_dict = [dict(row._mapping) for row in result.fetchall()]
             else:
-                # Use primary
-                result = await session.execute(payload.query)
-                rows = []
-            
-            latency_ms = (time.time() - start_time) * 1000
-        
-        rows_dict = [dict(row) for row in rows] if rows else []
-        
+                await session.execute(text(payload.query))
+                rows_dict = []
+
+        latency_ms = (time.time() - start_time) * 1000
+
         # === LAYER 4: OBSERVABILITY ===
         # Log to audit log
         async with PrimarySession() as session:
@@ -114,9 +112,9 @@ async def execute_query(
             )
             session.add(audit)
             await session.commit()
-        
+
         logger.info(f"[{trace_id}] Success: {len(rows_dict)} rows in {latency_ms:.1f}ms")
-        
+
         return QueryResult(
             trace_id=trace_id,
             query_type="SELECT" if is_select else "INSERT",
@@ -125,13 +123,9 @@ async def execute_query(
             latency_ms=latency_ms,
             slow=latency_ms > settings.slow_query_threshold_ms,
         )
-    
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"[{trace_id}] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-# Fix import
-from config import settings
