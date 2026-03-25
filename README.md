@@ -1,0 +1,448 @@
+# Queryx — Secure Intelligent Query Gateway
+
+> A 4-layer database middleware in Python/FastAPI that sits between clients and PostgreSQL.
+> Every query passes through security, performance, execution, and observability layers.
+
+![Phase 1: Foundation](https://img.shields.io/badge/Phase-1%20Complete-green)
+![Tests](https://img.shields.io/badge/Tests-Unit%20%2B%20Integration-blue)
+![Coverage](https://img.shields.io/badge/Coverage-70%25%2B-brightgreen)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Docker + Docker Compose v2
+- Python 3.11+ (for running tests locally without Docker)
+- Make (optional, for convenience commands)
+
+### Start the Gateway (1 command)
+
+```bash
+docker compose up --build
+```
+
+This starts:
+
+- **Gateway** at `http://localhost:8000` (FastAPI + lifespan)
+- **Postgres Primary** at `localhost:5432` (write DB)
+- **Postgres Replica** at `localhost:5433` (read DB)
+- **Redis** at `localhost:6379` (cache + sessions)
+
+### First Query (3 steps)
+
+**Step 1: Register a user**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","email":"alice@example.com","password":"Test@1234"}'
+```
+
+Response:
+
+```json
+{
+	"access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+	"token_type": "bearer",
+	"role": "readonly"
+}
+```
+
+**Step 2: Run a SELECT query**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 1 AS result"}'
+```
+
+Response:
+
+```json
+{
+	"trace_id": "a1b2c3d4-...",
+	"query_type": "SELECT",
+	"rows": [{ "result": 1 }],
+	"rows_count": 1,
+	"latency_ms": 2.5,
+	"cached": false,
+	"slow": false
+}
+```
+
+**Step 3: Try a DROP query (should be blocked)**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"DROP TABLE users"}'
+```
+
+Response:
+
+```json
+{
+	"detail": "DROP queries are not allowed"
+}
+```
+
+Status: **400 Bad Request** ✓
+
+---
+
+## Architecture — 4-Layer Pipeline
+
+```
+Incoming Request
+       │
+       ▼
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 1: SECURITY                                       │
+│ - JWT/API Key auth                                      │
+│ - Brute force protection (Redis, 5 attempts lockout)    │
+│ - IP allow/blocklist (Redis sets)                       │
+│ - Rate limiting (rolling window, anomaly detection)     │
+│ - Query validation (SQL injection, type blocklist)      │
+│ - RBAC (role → table/column access)                     │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 2: PERFORMANCE                                    │
+│ - Query fingerprinting (normalize → SHA-256)            │
+│ - Redis cache with table-tagged invalidation            │
+│ - Auto-LIMIT injection (prevent unbounded SELECT)       │
+│ - Pre-flight EXPLAIN cost estimation                    │
+│ - Daily query budget per user (Redis counter)           │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 3: EXECUTION                                      │
+│ - Circuit breaker (closed/open/half-open, Redis state)  │
+│ - Read/write routing (SELECT → replica, write → primary)│
+│ - Connection pooling (asyncpg, min=5, max=20)           │
+│ - Query timeout + exponential backoff retry             │
+│ - EXPLAIN ANALYZE parsing (JSON format)                 │
+│ - Index recommendation engine (rule-based)              │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────┐
+│ LAYER 4: OBSERVABILITY                                  │
+│ - Immutable audit log (append-only, Postgres)           │
+│ - Distributed trace IDs (UUID per request)              │
+│ - Structured JSON logging                               │
+│ - Redis metrics counters (served via /api/v1/metrics)   │
+│ - Slow query detection (>200ms flagged)                 │
+│ - Table access heat map                                 │
+└────────────────────┬────────────────────────────────────┘
+                     │
+                Response Returned
+```
+
+---
+
+## Phase 1: Foundation (Complete)
+
+### What Works
+
+- ✅ JWT login + registration
+- ✅ API key auth (with rotation placeholder)
+- ✅ Brute force protection (423 Locked after 5 failures)
+- ✅ IP allow/blocklist (Redis sets, configurable)
+- ✅ Rate limiter (rolling window + anomaly detection)
+- ✅ SQL injection detection (regex patterns)
+- ✅ Query type blocker (SELECT + INSERT only by default)
+- ✅ RBAC (Admin / Readonly / Guest roles)
+- ✅ Column-level access control (role → allowed columns)
+- ✅ PII masking (SSN → **\*-**-6789, etc.)
+- ✅ Query fingerprinting (normalize → SHA-256)
+- ✅ Redis cache with table-tagged invalidation
+- ✅ Auto-LIMIT injection (prevents unbounded SELECT)
+- ✅ Circuit breaker (3-state: closed/open/half-open)
+- ✅ R/W routing (SELECT → replica, INSERT → primary)
+- ✅ EXPLAIN ANALYZE parser (JSON output)
+- ✅ Audit logging (append-only in Postgres)
+- ✅ Trace IDs (UUID per request)
+- ✅ Health check (DB + Redis ping)
+
+### Testing
+
+**Unit tests** (no DB required):
+
+```bash
+make test-unit
+```
+
+**Integration tests** (requires Docker):
+
+```bash
+make test-integration
+```
+
+**All tests with coverage**:
+
+```bash
+make test
+```
+
+---
+
+## API Reference
+
+### Auth Endpoints
+
+**POST /api/v1/auth/register**
+
+```json
+{
+	"username": "alice",
+	"email": "alice@example.com",
+	"password": "Test@1234" // 8+ chars
+}
+```
+
+Returns: `{access_token, token_type, role}`
+
+**POST /api/v1/auth/login**
+
+```json
+{
+	"username": "alice",
+	"password": "Test@1234"
+}
+```
+
+Returns: `{access_token, token_type, role}`
+
+### Query Endpoints
+
+**POST /api/v1/query/execute**
+
+```json
+{
+	"query": "SELECT * FROM users",
+	"dry_run": false // Optional: validate without executing
+}
+```
+
+Returns: `{trace_id, query_type, rows, rows_count, latency_ms, cached, slow}`
+
+**GET /health**
+Returns: `{status, service}`
+
+**GET /api/v1/status**
+Returns: `{status, redis}`
+
+### Admin Endpoints
+
+**POST /api/v1/admin/ip-rules** (requires admin role)
+
+```json
+{
+	"ip_address": "192.168.1.100",
+	"rule_type": "allow" // or "block"
+}
+```
+
+**DELETE /api/v1/admin/ip-rules/{ip_address}**
+
+**GET /api/v1/admin/metrics/live**
+Returns: `{request_count, error_count, cache_hits, slow_queries}`
+
+---
+
+## Configuration
+
+All settings are loaded from `.env` (see `.env.example`):
+
+| Variable                      | Default                     | Purpose                                 |
+| ----------------------------- | --------------------------- | --------------------------------------- |
+| `SECRET_KEY`                  | —                           | JWT signing key (change in production!) |
+| `DB_PRIMARY_URL`              | postgres:5432               | Write database                          |
+| `DB_REPLICA_URL`              | postgres_replica:5433       | Read database                           |
+| `REDIS_URL`                   | redis:6379                  | Cache & sessions                        |
+| `BRUTE_FORCE_MAX_ATTEMPTS`    | 5                           | Failed attempts before lockout          |
+| `BRUTE_FORCE_LOCKOUT_MINUTES` | 15                          | Lockout duration                        |
+| `RATE_LIMIT_PER_MINUTE`       | 60                          | Requests per user per minute            |
+| `ENCRYPTION_KEY`              | —                           | AES-256-GCM key (32 chars)              |
+| `ENCRYPT_COLUMNS`             | ssn,credit_card             | Columns to encrypt                      |
+| `HONEYPOT_TABLES`             | secret_keys,admin_passwords | Tables that trigger alerts              |
+| `AUTO_LIMIT_DEFAULT`          | 1000                        | Auto-LIMIT on unbounded SELECT          |
+| `COST_THRESHOLD_WARN`         | 1000                        | EXPLAIN cost warning                    |
+| `COST_THRESHOLD_BLOCK`        | 10000                       | EXPLAIN cost hard limit (admin exempt)  |
+| `SLOW_QUERY_THRESHOLD_MS`     | 200                         | Latency threshold to flag as slow       |
+| `DAILY_BUDGET_DEFAULT`        | 50000                       | Daily cost budget per user              |
+| `CIRCUIT_FAILURE_THRESHOLD`   | 5                           | DB failures before circuit opens        |
+| `CIRCUIT_COOLDOWN_SECONDS`    | 30                          | Cooldown before HALF_OPEN probe         |
+
+---
+
+## Development
+
+### Add a test user
+
+```bash
+make shell-gateway
+python
+>>> from middleware.security.auth import hash_password
+>>> from models import User
+>>> from utils.db import PrimarySession
+>>> import asyncio
+>>> async def create_user():
+...     async with PrimarySession() as session:
+...         user = User(username="admin", email="admin@example.com", hashed_password=hash_password("Admin@123"), role="admin")
+...         session.add(user)
+...         await session.commit()
+>>> asyncio.run(create_user())
+```
+
+### Run tests locally
+
+```bash
+cd gateway
+python -m pytest tests/unit -v
+python -m pytest tests/integration -v
+python -m pytest tests/ -v --cov=. --cov-report=html
+```
+
+### View logs
+
+```bash
+make logs
+```
+
+### Restart gateway
+
+```bash
+make restart
+```
+
+### Shell into database
+
+```bash
+make shell-db
+```
+
+---
+
+## Project Structure
+
+```
+queryx/
+├── gateway/
+│   ├── main.py                 # FastAPI app + lifespan
+│   ├── config.py               # Settings (pydantic)
+│   ├── requirements.txt         # Python dependencies
+│   │
+│   ├── middleware/
+│   │   ├── security/           # Layer 1: auth, brute_force, validator, rbac, ip_filter, rate_limiter
+│   │   ├── performance/        # Layer 2: fingerprinter, cache, auto_limit, cost_estimator, budget
+│   │   ├── execution/          # Layer 3: circuit_breaker, executor, analyzer
+│   │   └── observability/      # Layer 4: audit, metrics
+│   │
+│   ├── routers/
+│   │   └── v1/                 # API v1 (auth, query, admin)
+│   │
+│   ├── models/                 # SQLAlchemy models (user, audit_log, sla_snapshot)
+│   ├── utils/                  # Helpers (db, logger, redis)
+│   │
+│   └── migrations/             # Alembic (for schema evolution)
+│
+├── frontend/                    # React dashboard (placeholder)
+├── sdk/                         # Python SDK (placeholder)
+├── tests/
+│   ├── unit/                   # No DB required
+│   ├── integration/            # Full pipeline (requires Docker)
+│   └── load/                   # Locust load tests (placeholder)
+│
+├── docker-compose.yml          # 5 services: gateway, postgres, postgres_replica, redis, frontend
+├── .env.example                # Environment template
+├── .env                        # Local dev config
+├── Makefile                    # Development shortcuts
+└── README.md                   # This file
+```
+
+---
+
+## Next: Phase 2 (Week 3–4)
+
+- [ ] Complete performance layer (cost estimation, caching optimization)
+- [ ] Speed benchmarks (measure cache hit ratio improvement)
+- [ ] Add slow query logging to dedicated table
+- [ ] Implement query budget enforcement
+- [ ] Load test with Locust (before/after cache comparison)
+- [ ] Pre-flight cost blocking (configurable per role)
+
+## Next: Phase 3 (Week 5–6)
+
+- [ ] Index recommendation engine (smart rules from EXPLAIN)
+- [ ] Query complexity scorer (JOINs, subqueries, wildcards)
+- [ ] Slow query detection with alerting
+- [ ] Query diff viewer (original vs executed via auto-LIMIT)
+- [ ] Pre-flight EXPLAIN cost estimation display
+
+---
+
+## Troubleshooting
+
+### Gateway won't start: "Cannot connect to Postgres"
+
+Check docker status:
+
+```bash
+docker compose ps
+```
+
+If postgres is "unhealthy", wait 10s and retry.
+
+### "Rate limit exceeded" immediately
+
+By default, limit is 60 requests/minute per user. Check `.env` `RATE_LIMIT_PER_MINUTE`.
+
+### "Circuit breaker OPEN"
+
+Gateway detected 5+ consecutive DB errors. Wait 30s (check `.env` `CIRCUIT_COOLDOWN_SECONDS`). Server is in HALF_OPEN state, testing recovery with 1 probe request.
+
+### Tests fail: "Cannot find module 'main'"
+
+Ensure you're running from the `gateway/` directory:
+
+```bash
+cd gateway
+python -m pytest tests/
+```
+
+---
+
+## Interview Talking Points
+
+1. **4-layer pipeline**: Every query passes through security, performance, execution, observability — no layer can be skipped.
+
+2. **Redis at every layer**: Brute force counters, rate limit buckets, circuit breaker state, cache, metrics — all in Redis for fast lookups.
+
+3. **Fast-fail security**: IP check before auth, injection detection before execution. Fail as early as possible.
+
+4. **Smart caching**: Query fingerprinting + table-tagged invalidation means cache is always correct. No stale data.
+
+5. **Observability built-in**: Trace IDs, audit logs, metrics served via REST API. No external Prometheus/Grafana tools.
+
+6. **Circuit breaker**: When DB fails, gateway fails fast (503) instead of hanging. HALF_OPEN state tests recovery. Production-ready resilience pattern.
+
+7. **PII masking**: Different roles see different data. Admin sees SSN fully, readonly sees masked (**\*-**-6789). Implemented at result level, not in query.
+
+8. **EXPLAIN ANALYZE**: Post-execution plan analysis → index recommendations. Rule-based engine suggests CREATE INDEX DDL.
+
+---
+
+## License
+
+MIT
+# SIQG
