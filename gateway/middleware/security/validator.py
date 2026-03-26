@@ -14,8 +14,6 @@ INJECTION_PATTERNS = [
     r"(?i)(DELETE\s+FROM)",  # DELETE FROM
     r"(?i)(TRUNCATE\s+TABLE)",  # TRUNCATE
     r"(?i)(ALTER\s+TABLE)",  # ALTER TABLE
-    r"(?i)(INSERT\s+INTO)",  # INSERT INTO (controlled separately)
-    r"(?i)(UPDATE\s+\w+\s+SET)",  # UPDATE ... SET
     r"(?i)(EXEC\s*\()",  # EXEC
     r"(?i)(EXECUTE\s*\()",  # EXECUTE
     r"(?i)(;\s*DROP)",  # ; DROP

@@ -63,10 +63,10 @@ def mask_pii_value(column_name: str, value: str) -> str:
         return "***"
 
     elif column_name == "phone":
-        # phone: 1234567890 → ****67890
+        # phone: 1234567890 → **6890
         if len(value) >= 4:
-            return "*" * (len(value) - 4) + value[-4:]
-        return "****"
+            return "**" + value[-4:]
+        return "**"
 
     return value
 
