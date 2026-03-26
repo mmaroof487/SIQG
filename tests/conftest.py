@@ -1,4 +1,11 @@
 """Test configuration and fixtures."""
+import sys
+import os
+from pathlib import Path
+
+# Add gateway directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent / "gateway"))
+
 import pytest
 from fastapi.testclient import TestClient
 import asyncio
@@ -15,14 +22,14 @@ TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 async def test_db():
     """Create test database."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
-    
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
+
     yield Session
-    
+
     await engine.dispose()
 
 
