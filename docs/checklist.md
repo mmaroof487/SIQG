@@ -25,66 +25,66 @@ Opus should respond to each section with:
 
 ### 1.1 Authentication
 
-- [ ] JWT tokens are signed with HS256 or RS256, not "none" algorithm
-- [ ] JWT expiry (exp claim) is checked on every request — not just at login
-- [ ] Expired tokens return 401, not 200 or 500
-- [ ] API keys are stored as SHA-256 hashes in DB, never as plaintext
-- [ ] API key lookup hits Redis first (fast path), DB only on cache miss
+- [x] JWT tokens are signed with HS256 or RS256, not "none" algorithm
+- [x] JWT expiry (exp claim) is checked on every request — not just at login
+- [x] Expired tokens return 401, not 200 or 500
+- [x] API keys are stored as SHA-256 hashes in DB, never as plaintext
+- [x] API key lookup hits Redis first (fast path), DB only on cache miss
 - [ ] Rotated keys have a grace period (old key still works for N hours)
 - [ ] HMAC signature verification uses secrets.compare_digest() — NOT == operator
       (== is vulnerable to timing attacks, compare_digest is constant-time)
 - [ ] HMAC timestamps are checked — requests older than 5 minutes are rejected
-- [ ] Missing auth header returns 401, not 403 or 500
+- [x] Missing auth header returns 401, not 403 or 500
 
 ### 1.2 Brute Force Protection
 
-- [ ] Failed attempt counter is per IP + per username (not just IP alone)
-- [ ] Counter uses Redis INCR + EXPIRE — not a DB row (DB writes on every failed auth = too slow)
-- [ ] Lockout threshold is configurable via .env, not hardcoded
-- [ ] Locked account returns 423 (Locked), not 401 (Unauthorized) — different status codes
-- [ ] TTL is set on the FIRST increment, not reset on every increment
+- [x] Failed attempt counter is per IP + per username (not just IP alone)
+- [x] Counter uses Redis INCR + EXPIRE — not a DB row (DB writes on every failed auth = too slow)
+- [x] Lockout threshold is configurable via .env, not hardcoded
+- [x] Locked account returns 423 (Locked), not 401 (Unauthorized) — different status codes
+- [x] TTL is set on the FIRST increment, not reset on every increment
       (if you call EXPIRE on every INCR, the lockout window resets each attempt — wrong)
-- [ ] Successful login clears the failed attempt counter
-- [ ] Brute force check happens BEFORE password verification (fail fast)
+- [x] Successful login clears the failed attempt counter
+- [x] Brute force check happens BEFORE password verification (fail fast)
 
 ### 1.3 IP Filter
 
-- [ ] IP blocklist is a Redis SET (SISMEMBER = O(1)), not a DB query on every request
-- [ ] Allowlist logic: if allowlist is empty, everyone is allowed (don't accidentally block all)
-- [ ] IP check is the FIRST thing after trace ID generation — before auth, before anything else
+- [x] IP blocklist is a Redis SET (SISMEMBER = O(1)), not a DB query on every request
+- [x] Allowlist logic: if allowlist is empty, everyone is allowed (don't accidentally block all)
+- [x] IP check is the FIRST thing after trace ID generation — before auth, before anything else
 - [ ] Admin can add/remove IPs via API without restarting the server (hot config)
-- [ ] request.client.host is used for IP — not a user-supplied header like X-Forwarded-For
+- [x] request.client.host is used for IP — not a user-supplied header like X-Forwarded-For
       (X-Forwarded-For can be spoofed — only use it if you're behind a trusted reverse proxy)
 
 ### 1.4 Rate Limiter
 
-- [ ] Window key includes the current time bucket: key = f"ratelimit:{user_id}:{now // 60}"
-- [ ] EXPIRE is set to 2x the window (not 1x) to handle edge cases at window boundaries
-- [ ] Rate limit is per authenticated user_id, not per IP (IPs can be shared/NATted)
-- [ ] Anomaly baseline uses rolling window of last N buckets, not a single average
-- [ ] Anomaly detection does NOT block — it flags and alerts only
+- [x] Window key includes the current time bucket: key = f"ratelimit:{user_id}:{now // 60}"
+- [x] EXPIRE is set to 2x the window (not 1x) to handle edge cases at window boundaries
+- [x] Rate limit is per authenticated user_id, not per IP (IPs can be shared/NATted)
+- [x] Anomaly baseline uses rolling window of last N buckets, not a single average
+- [x] Anomaly detection does NOT block — it flags and alerts only
       (false positive blocks = legitimate users locked out = bad)
-- [ ] Rate limit counter uses INCR (atomic) not GET + SET (race condition)
+- [x] Rate limit counter uses INCR (atomic) not GET + SET (race condition)
 
 ### 1.5 Query Validator
 
-- [ ] Regex patterns use re.IGNORECASE — SQL keywords are case-insensitive
-- [ ] Injection patterns check for: OR 1=1, --, ;--, UNION SELECT, SLEEP(), WAITFOR, /\*\*/
-- [ ] Allowed query types are checked by first keyword only — not contains()
+- [x] Regex patterns use re.IGNORECASE — SQL keywords are case-insensitive
+- [x] Injection patterns check for: OR 1=1, --, ;--, UNION SELECT, SLEEP(), WAITFOR, /\*\*/
+- [x] Allowed query types are checked by first keyword only — not contains()
       (contains("SELECT") would pass "DROP TABLE; SELECT 1" — wrong)
-- [ ] query.strip().split()[0].upper() is used to get first keyword safely
-- [ ] Empty query string is handled (split() on empty string crashes)
-- [ ] Validation happens on the ORIGINAL query before any modifications
-- [ ] Honeypot table check happens HERE, before any processing
+- [x] query.strip().split()[0].upper() is used to get first keyword safely
+- [x] Empty query string is handled (split() on empty string crashes)
+- [x] Validation happens on the ORIGINAL query before any modifications
+- [x] Honeypot table check happens HERE, before any processing
 
 ### 1.6 RBAC
 
-- [ ] Role is extracted from JWT payload — never from request body or query params
-- [ ] Table access check is deny-by-default: unknown role = no access
-- [ ] Column strip happens AFTER execution on the result rows, not by modifying the query
+- [x] Role is extracted from JWT payload — never from request body or query params
+- [x] Table access check is deny-by-default: unknown role = no access
+- [x] Column strip happens AFTER execution on the result rows, not by modifying the query
       (modifying SELECT queries to remove columns is fragile — strip from results instead)
-- [ ] strip_denied_columns handles empty result set (empty list) without crashing
-- [ ] Role config is loaded from settings/DB — not hardcoded strings scattered in code
+- [x] strip_denied_columns handles empty result set (empty list) without crashing
+- [x] Role config is loaded from settings/DB — not hardcoded strings scattered in code
 
 ---
 
@@ -92,56 +92,56 @@ Opus should respond to each section with:
 
 ### 2.1 Query Fingerprinting
 
-- [ ] Normalization replaces: integers, floats, string literals, IN list values
-- [ ] Normalization is case-insensitive and whitespace-normalized
-- [ ] Cache key includes role: same query by admin and readonly = different cache entries
+- [x] Normalization replaces: integers, floats, string literals, IN list values
+- [x] Normalization is case-insensitive and whitespace-normalized
+- [x] Cache key includes role: same query by admin and readonly = different cache entries
       (admin gets unmasked data, readonly gets masked — they must NOT share cache)
-- [ ] Cache key includes table name for efficient invalidation pattern matching
-- [ ] Fingerprint is generated AFTER validation (don't fingerprint invalid queries)
+- [x] Cache key includes table name for efficient invalidation pattern matching
+- [x] Fingerprint is generated AFTER validation (don't fingerprint invalid queries)
 
 ### 2.2 Redis Cache
 
-- [ ] Cache GET happens before DB connection is opened (avoid opening pool connection on hit)
-- [ ] Cache SET uses SETEX (set + expire in one atomic command), not SET + EXPIRE separately
-- [ ] Cached result is JSON serialized — datetime objects need custom serializer
+- [x] Cache GET happens before DB connection is opened (avoid opening pool connection on hit)
+- [x] Cache SET uses SETEX (set + expire in one atomic command), not SET + EXPIRE separately
+- [x] Cached result is JSON serialized — datetime objects need custom serializer
       (json.dumps(datetime.now()) crashes — use isoformat() or a custom default)
-- [ ] Cache key for SELECT only — INSERT/UPDATE/DELETE are never cached
-- [ ] Cache stores the FINAL result (after decryption + masking), not the raw DB rows
+- [x] Cache key for SELECT only — INSERT/UPDATE/DELETE are never cached
+- [x] Cache stores the FINAL result (after decryption + masking), not the raw DB rows
       (if you cache raw encrypted rows, every cache hit needs decryption = defeats the purpose)
-- [ ] Cache read is wrapped in try/except — Redis failure should not crash the query
+- [x] Cache read is wrapped in try/except — Redis failure should not crash the query
 
 ### 2.3 Cache Invalidation
 
-- [ ] On INSERT/UPDATE/DELETE: table name is parsed from the query
-- [ ] SCAN + DEL uses a pipeline for efficiency (not one DEL per key)
-- [ ] SCAN uses COUNT hint (e.g. COUNT=100) to batch results
-- [ ] SCAN loop continues until cursor returns 0 (cursor != 0 means more keys remain)
+- [x] On INSERT/UPDATE/DELETE: table name is parsed from the query
+- [x] SCAN + DEL uses a pipeline for efficiency (not one DEL per key)
+- [x] SCAN uses COUNT hint (e.g. COUNT=100) to batch results
+- [x] SCAN loop continues until cursor returns 0 (cursor != 0 means more keys remain)
 - [ ] Invalidation is fire-and-forget (asyncio.create_task) — doesn't block the response
-- [ ] If no keys found for the table pattern, that's fine — no error
+- [x] If no keys found for the table pattern, that's fine — no error
 
 ### 2.4 Auto-LIMIT
 
-- [ ] LIMIT check is case-insensitive (LIMIT, limit, Limit all match)
-- [ ] Auto-LIMIT only applies to SELECT queries — never to INSERT
+- [x] LIMIT check is case-insensitive (LIMIT, limit, Limit all match)
+- [x] Auto-LIMIT only applies to SELECT queries — never to INSERT
 - [ ] Original query and modified query are both stored for the diff viewer
-- [ ] Injected LIMIT value is configurable via .env (AUTO_LIMIT_DEFAULT)
-- [ ] If query already has LIMIT 5, don't inject LIMIT 1000 on top of it
+- [x] Injected LIMIT value is configurable via .env (AUTO_LIMIT_DEFAULT)
+- [x] If query already has LIMIT 5, don't inject LIMIT 1000 on top of it
 
 ### 2.5 Cost Estimator
 
-- [ ] Uses EXPLAIN (FORMAT JSON) — NOT EXPLAIN ANALYZE (ANALYZE actually runs the query)
-- [ ] JSON result is parsed: plan[0]["Plan"]["Total Cost"]
-- [ ] EXPLAIN failure is caught — don't block the query if EXPLAIN fails
+- [x] Uses EXPLAIN (FORMAT JSON) — NOT EXPLAIN ANALYZE (ANALYZE actually runs the query)
+- [x] JSON result is parsed: plan[0]["Plan"]["Total Cost"]
+- [x] EXPLAIN failure is caught — don't block the query if EXPLAIN fails
 - [ ] Cost threshold check is skipped for admin role
-- [ ] Cost is included in the response even if under threshold (for dashboard display)
+- [x] Cost is included in the response even if under threshold (for dashboard display)
 
 ### 2.6 Daily Budget
 
-- [ ] Budget key includes date: f"budget:{user_id}:{today}" in UTC, not local time
-- [ ] TTL is set to seconds until midnight UTC — not a fixed 86400 (that would be rolling, not daily)
-- [ ] INCRBYFLOAT is used (not INCR) since cost values are floats
-- [ ] Budget check happens AFTER cost estimation, BEFORE execution
-- [ ] Budget deduction happens AFTER successful execution — not before
+- [x] Budget key includes date: f"budget:{user_id}:{today}" in UTC, not local time
+- [x] TTL is set to seconds until midnight UTC — not a fixed 86400 (that would be rolling, not daily)
+- [x] INCRBYFLOAT is used (not INCR) since cost values are floats
+- [x] Budget check happens AFTER cost estimation, BEFORE execution
+- [x] Budget deduction happens AFTER successful execution — not before
       (deducting before execution means failed queries still consume budget — wrong)
 - [ ] Admin role gets higher (or unlimited) budget — not same as readonly
 

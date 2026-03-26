@@ -55,6 +55,19 @@ async def validate_query(query: str):
             detail="Potential SQL injection detected"
         )
 
+    # Check for honeypot table access (early attack detection)
+    from config import settings
+    honeypot_tables = settings.honeypot_tables_list
+    query_upper = query.upper()
+    for honeypot_table in honeypot_tables:
+        if honeypot_table.upper() in query_upper:
+            logger.critical(f"HONEYPOT HIT: Attack attempt on table '{honeypot_table}': {query[:100]}")
+            # Log this for security team review
+            raise HTTPException(
+                status_code=403,
+                detail="Access to this resource is forbidden"
+            )
+
     # Extract query type
     first_word = query.split()[0].upper() if query else ""
 

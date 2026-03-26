@@ -25,7 +25,8 @@ async def check_rate_limit(request: Request, user_id: str):
     # Increment counter for this bucket
     count = await redis.incr(bucket_key)
     if count == 1:
-        await redis.expire(bucket_key, window_seconds + 1)
+        # EXPIRE set to 2x window to handle edge cases at window boundaries
+        await redis.expire(bucket_key, window_seconds * 2)
 
     # Check if over limit
     limit = settings.rate_limit_per_minute

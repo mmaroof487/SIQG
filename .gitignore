@@ -44,6 +44,16 @@ htmlcov/
 
 pg_data/
 redis_*.rdb
+dump.rdb
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+*.log
+
+# Logs
+logs/
 
 .DS_Store
 .AppleDouble

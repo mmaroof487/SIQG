@@ -26,10 +26,11 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U queryx"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U queryx -d queryx -h localhost"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
     networks:
       - queryx_net
 
@@ -42,10 +43,11 @@ services:
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U queryx"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      test: ["CMD-SHELL", "pg_isready -U queryx -d queryx -h localhost"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+      start_period: 10s
     networks:
       - queryx_net
 

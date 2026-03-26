@@ -2,6 +2,9 @@
 from pydantic_settings import BaseSettings
 from typing import List
 import os
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class Settings(BaseSettings):
@@ -36,6 +39,25 @@ class Settings(BaseSettings):
     # === HONEYPOT ===
     honeypot_tables: str = "secret_keys,admin_passwords"
 
+    # === RBAC ROLES ===
+    rbac_roles_json: str = """{
+        "admin": {
+            "tables": "*",
+            "columns": "*",
+            "operations": ["SELECT", "INSERT", "UPDATE", "DELETE"]
+        },
+        "readonly": {
+            "tables": "*",
+            "columns": "*",
+            "operations": ["SELECT"]
+        },
+        "guest": {
+            "tables": ["public_data"],
+            "columns": ["id", "name", "created_at"],
+            "operations": ["SELECT"]
+        }
+    }"""
+
     # === QUERY LIMITS ===
     query_timeout_seconds: int = 5
     auto_limit_default: int = 1000
@@ -65,6 +87,20 @@ class Settings(BaseSettings):
     def honeypot_tables_list(self) -> List[str]:
         """Parse comma-separated honeypot tables."""
         return [t.strip() for t in self.honeypot_tables.split(",") if t.strip()]
+
+    @property
+    def rbac_roles(self) -> dict:
+        """Parse RBAC roles from JSON configuration."""
+        import json
+        try:
+            return json.loads(self.rbac_roles_json)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse RBAC roles JSON, using defaults")
+            return {
+                "admin": {"tables": "*", "columns": "*", "operations": ["SELECT", "INSERT", "UPDATE", "DELETE"]},
+                "readonly": {"tables": "*", "columns": "*", "operations": ["SELECT"]},
+                "guest": {"tables": ["public_data"], "columns": ["id", "name", "created_at"], "operations": ["SELECT"]}
+            }
 
     class Config:
         env_file = ".env"

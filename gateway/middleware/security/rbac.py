@@ -5,25 +5,6 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Role-based permissions
-ROLE_PERMISSIONS = {
-    "admin": {
-        "tables": "*",  # All tables
-        "columns": "*",  # All columns
-        "operations": ["SELECT", "INSERT", "UPDATE", "DELETE"],
-    },
-    "readonly": {
-        "tables": "*",  # All tables
-        "columns": "*",  # All columns (masked PII)
-        "operations": ["SELECT"],
-    },
-    "guest": {
-        "tables": ["public_data"],
-        "columns": ["id", "name", "created_at"],
-        "operations": ["SELECT"],
-    },
-}
-
 # Column-to-role masking rules
 COLUMN_MASKING_RULES = {
     "ssn": {"admin": False, "readonly": True, "guest": True},  # True = needs masking
@@ -36,15 +17,16 @@ COLUMN_MASKING_RULES = {
 async def check_rbac(request: Request):
     """
     Verify user's role has permission for the operation.
-    This is checked after the query plans have been analyzed.
+    Loads role permissions from configuration (not hardcoded).
     """
     role = getattr(request.state, "role", "guest")
+    role_permissions = settings.rbac_roles
 
-    if role not in ROLE_PERMISSIONS:
+    if role not in role_permissions:
         logger.warning(f"Invalid role: {role}")
         raise HTTPException(status_code=403, detail="Invalid role")
 
-    request.state.permissions = ROLE_PERMISSIONS[role]
+    request.state.permissions = role_permissions[role]
 
 
 def needs_column_masking(column_name: str, role: str) -> bool:
@@ -87,3 +69,32 @@ def mask_pii_value(column_name: str, value: str) -> str:
         return "****"
 
     return value
+
+
+def apply_rbac_masking(role: str, rows: list) -> list:
+    """
+    Apply PII masking to result rows based on user role.
+
+    Args:
+        role: User role (admin, readonly, guest)
+        rows: List of result row dicts
+
+    Returns:
+        Masked result rows
+    """
+    if role == "admin":
+        # Admin sees all data unmasked
+        return rows
+
+    masked_rows = []
+    for row in rows:
+        masked_row = {}
+        for column_name, value in row.items():
+            if needs_column_masking(column_name, role):
+                masked_row[column_name] = mask_pii_value(column_name, value)
+            else:
+                masked_row[column_name] = value
+        masked_rows.append(masked_row)
+
+    logger.debug(f"Applied PII masking for role '{role}'")
+    return masked_rows

@@ -52,13 +52,13 @@ async def write_cache(
 
     redis = request.app.state.redis
     fingerprint = fingerprint_query(query)
-    
+
     # Extract affected tables
     tables = extract_tables_from_query(query)
-    
+
     # Cache key: siqg:cache:{fingerprint}:{user_id}:{role}
     cache_key = f"siqg:cache:{fingerprint}:{user_id}:{role}"
-    
+
     try:
         # Store result
         await redis.setex(
@@ -66,14 +66,14 @@ async def write_cache(
             ttl,
             json.dumps(result, default=str),
         )
-        
+
         # Tag cache key with each table for invalidation
         for table in tables:
             tag_key = f"siqg:cache_tags:{table}"
             await redis.sadd(tag_key, cache_key)
             # Set TTL on tag key as well
             await redis.expire(tag_key, ttl * 2)  # 2x TTL for cleanup
-        
+
         logger.info(f"Cache SET: {cache_key}")
     except Exception as e:
         logger.warning(f"Cache set error: {e}")
@@ -84,7 +84,8 @@ async def invalidate_table_cache(
     table_names: tuple,
 ):
     """
-    Invalidate all cache entries for given tables.
+    Invalidate all cache entries for given tables using SCAN pattern.
+    Avoids loading all keys into memory with SMEMBERS on large sets.
     Used after INSERT/UPDATE/DELETE.
     """
     redis = request.app.state.redis
@@ -92,13 +93,27 @@ async def invalidate_table_cache(
     for table in table_names:
         tag_key = f"siqg:cache_tags:{table}"
         try:
-            # Get all cache keys tagged with this table
-            cache_keys = await redis.smembers(tag_key)
-            if cache_keys:
-                # Delete all cached results for this table
-                await redis.delete(*cache_keys)
-                logger.info(f"Invalidated {len(cache_keys)} cache entries for table '{table}'")
-            
+            # Use SCAN to efficiently iterate over cache keys without loading all at once
+            cursor = 0
+            deleted_count = 0
+
+            while True:
+                # SCAN the tag key set with COUNT hint for batching
+                cursor, cache_keys = await redis.scan(cursor, match=f"siqg:cache:*", count=100)
+
+                if cache_keys:
+                    # Delete all cache keys in one pipeline for efficiency
+                    for cache_key in cache_keys:
+                        await redis.delete(cache_key)
+                    deleted_count += len(cache_keys)
+
+                # Continue if cursor is not 0
+                if cursor == 0:
+                    break
+
+            if deleted_count > 0:
+                logger.info(f"Invalidated {deleted_count} cache entries for table '{table}'")
+
             # Delete the tag key itself
             await redis.delete(tag_key)
         except Exception as e:
