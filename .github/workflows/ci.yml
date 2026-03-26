@@ -52,7 +52,7 @@ jobs:
       - name: Run tests
         run: |
           cd gateway
-          pytest tests/ -v --cov=. --cov-report=term-missing --cov-report=xml
+          pytest ../tests/ -v --cov=. --cov-report=term-missing --cov-report=xml
         env:
           DB_PRIMARY_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
           DB_REPLICA_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
