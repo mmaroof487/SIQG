@@ -1,4 +1,3 @@
-"""GitHub Actions CI workflow."""
 name: CI
 
 on:
