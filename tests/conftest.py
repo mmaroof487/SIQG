@@ -3,6 +3,13 @@ import sys
 import os
 from pathlib import Path
 
+# Set test environment variables before importing app
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests-only")
+os.environ.setdefault("ENCRYPTION_KEY", "test-encryption-key-32-chars!!!!!")
+os.environ.setdefault("DB_PRIMARY_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("DB_REPLICA_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
 # Add gateway directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "gateway"))
 

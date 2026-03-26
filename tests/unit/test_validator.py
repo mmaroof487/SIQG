@@ -1,6 +1,6 @@
 """Unit tests for SQL injection validator."""
 import pytest
-from gateway.middleware.security.validator import detect_sql_injection, validate_query
+from middleware.security.validator import detect_sql_injection, validate_query
 from fastapi import HTTPException
 
 

@@ -20,7 +20,7 @@ def inject_limit_clause(query: str, limit: int = None) -> str:
         Modified query with LIMIT clause (if needed)
     """
     if limit is None:
-        limit = settings.query_auto_limit  # Default: 1000
+        limit = settings.auto_limit_default  # Default: 1000
 
     query_upper = query.upper().strip()
 

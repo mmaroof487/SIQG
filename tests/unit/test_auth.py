@@ -1,6 +1,6 @@
 """Unit tests for authentication."""
 import pytest
-from gateway.middleware.security.auth import (
+from middleware.security.auth import (
     hash_api_key,
     create_jwt,
     decode_jwt,
