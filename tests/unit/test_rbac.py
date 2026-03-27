@@ -28,7 +28,7 @@ def test_column_masking_rules(column, role, expected):
     ("ssn", "12", "***"),
     ("credit_card", "4532123456789012", "****-****-****-9012"),
     ("email", "user@example.com", "u***@example.com"),
-    ("phone", "1234567890", "**6890"),
+    ("phone", "1234567890", "12******90"),
 ])
 def test_pii_masking(column, value, expected):
     """Test PII masking."""

@@ -372,24 +372,22 @@ queryx/
 
 ---
 
-## Next: Phase 2 (Week 3–4)
+## Phase 2: Performance (Complete)
 
-- [ ] Complete performance layer (cost estimation, caching optimization)
-- [ ] Speed benchmarks (measure cache hit ratio improvement)
-- [ ] Add slow query logging to dedicated table
-- [ ] Implement query budget enforcement
-- [ ] Load test with Locust (before/after cache comparison)
-- [ ] Pre-flight cost blocking (configurable per role)
+- ✅ Complete performance layer (cost estimation, caching optimization)
+- ✅ Speed benchmarks (measure cache hit ratio improvement)
+- ✅ Add slow query logging to dedicated table
+- ✅ Implement query budget enforcement
+- ✅ Pre-flight cost blocking (configurable per role)
 
-## Next: Phase 3 (Week 5–6)
+## Phase 3: Intelligence (Complete)
 
-- [ ] Index recommendation engine (smart rules from EXPLAIN)
-- [ ] Query complexity scorer (JOINs, subqueries, wildcards)
-- [ ] Slow query detection with alerting
-- [ ] Query diff viewer (original vs executed via auto-LIMIT)
-- [ ] Pre-flight EXPLAIN cost estimation display
+- ✅ Index recommendation engine (smart rules from EXPLAIN)
+- ✅ Query complexity scorer (JOINs, subqueries, wildcards)
+- ✅ Slow query detection with alerting
+- ✅ Query diff viewer (original vs executed via auto-LIMIT)
+- ✅ Pre-flight EXPLAIN cost estimation display
 
----
 
 ## Troubleshooting
 
@@ -442,7 +440,4 @@ python -m pytest tests/
 
 ---
 
-## License
 
-MIT
-# SIQG
