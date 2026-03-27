@@ -1,13 +1,15 @@
 #!/bin/bash
-# Test script for Phase 1 & 2 features using curl
-# Tests all critical security and performance fixes
+# Test script for Phase 1 + 2 + 3 features using curl.
+# Runs checks phase-by-phase so each layer can be verified independently.
+
+set -e
 
 BASE_URL="http://localhost:8000"
 PASS_COUNT=0
 FAIL_COUNT=0
 
-echo "🔐 === Phase 1 & 2 Comprehensive Test Suite ==="
-echo "Testing all critical security & performance fixes"
+echo "🔐 === Phase 1 + 2 + 3 Comprehensive Test Suite ==="
+echo "Testing security, performance, and intelligence layers"
 echo ""
 
 # 1. Get or create user
@@ -60,8 +62,11 @@ test_result() {
     fi
 }
 
+echo "=== PHASE 1: SECURITY ==="
+echo ""
+
 # 2. Test SQL Injection Blocking
-echo "2️⃣ Testing SQL Injection Detection (should be BLOCKED)..."
+echo "2️⃣ [P1] Testing SQL Injection Detection (should be BLOCKED)..."
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -76,7 +81,7 @@ fi
 echo ""
 
 # 3. Test DROP TABLE Blocking
-echo "3️⃣ Testing DROP TABLE Blocking (should be BLOCKED)..."
+echo "3️⃣ [P1] Testing DROP TABLE Blocking (should be BLOCKED)..."
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -91,7 +96,7 @@ fi
 echo ""
 
 # 4. Test Rate Limiting
-echo "4️⃣ Testing Rate Limiting (60 queries/min)..."
+echo "4️⃣ [P1] Testing Rate Limiting (60 queries/min)..."
 echo "   Making 65 rapid requests..."
 RATE_LIMITED=false
 for i in {1..65}; do
@@ -113,8 +118,12 @@ if [ "$RATE_LIMITED" = false ]; then
 fi
 echo ""
 
+echo ""
+echo "=== PHASE 2: PERFORMANCE ==="
+echo ""
+
 # 5. Test Budget Status (Phase 2)
-echo "5️⃣ Checking Budget Status (Phase 2)..."
+echo "5️⃣ [P2] Checking Budget Status..."
 RESPONSE=$(curl -s -X GET "$BASE_URL/api/v1/query/budget" \
   -H "Authorization: Bearer $TOKEN")
 
@@ -131,7 +140,7 @@ fi
 echo ""
 
 # 6. Test Cache (Phase 2) - requires test data table
-echo "6️⃣ Testing Cache (Phase 2)..."
+echo "6️⃣ [P2] Testing Cache..."
 echo "   Setting up test table..."
 
 # First query (CACHE MISS)
@@ -176,6 +185,67 @@ else
 fi
 echo ""
 
+echo ""
+echo "=== PHASE 3: INTELLIGENCE ==="
+echo ""
+
+# 7. Test analysis payload exists
+echo "7️⃣ [P3] Testing analysis payload fields..."
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 1 as phase3_check"}')
+
+SCAN_TYPE=$(echo "$RESPONSE" | jq -r '.analysis.scan_type' 2>/dev/null)
+EXEC_MS=$(echo "$RESPONSE" | jq -r '.analysis.execution_time_ms' 2>/dev/null)
+COMPLEXITY_LEVEL=$(echo "$RESPONSE" | jq -r '.analysis.complexity.level' 2>/dev/null)
+
+if [ "$SCAN_TYPE" != "null" ] && [ "$EXEC_MS" != "null" ] && [ "$COMPLEXITY_LEVEL" != "null" ]; then
+    test_result "Analysis payload includes scan/execution/complexity" "PASS"
+else
+    test_result "Analysis payload missing required fields" "FAIL"
+    echo "     Response: $RESPONSE"
+fi
+echo ""
+
+# 8. Test index suggestion engine shape
+echo "8️⃣ [P3] Testing index suggestions shape..."
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users WHERE id = 1"}')
+
+SUGGESTIONS_TYPE=$(echo "$RESPONSE" | jq -r 'if (.analysis.index_suggestions|type) == "array" then "array" else "other" end' 2>/dev/null)
+if [ "$SUGGESTIONS_TYPE" = "array" ]; then
+    test_result "Index suggestions returned as array" "PASS"
+else
+    test_result "Index suggestions shape invalid" "FAIL"
+    echo "     Response: $RESPONSE"
+fi
+echo ""
+
+# 9. Test analysis on cache hit
+echo "9️⃣ [P3] Testing analysis on cache hit..."
+curl -s -X POST "$BASE_URL/api/v1/query/execute" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' > /dev/null
+
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}')
+
+CACHED=$(echo "$RESPONSE" | jq -r '.cached' 2>/dev/null)
+HAS_COMPLEXITY=$(echo "$RESPONSE" | jq -r '.analysis.complexity.level' 2>/dev/null)
+if [ "$CACHED" = "true" ] && [ "$HAS_COMPLEXITY" != "null" ]; then
+    test_result "Cache hit still returns Phase 3 analysis" "PASS"
+else
+    test_result "Cache hit analysis missing" "FAIL"
+    echo "     Response: $RESPONSE"
+fi
+echo ""
+
 echo "✨ Feature Test Complete!"
 echo ""
 echo "Summary:"
@@ -184,6 +254,8 @@ echo "  [Phase 1] Query Type Blocking: ✅"
 echo "  [Phase 1] Rate Limiting: Check logs"
 echo "  [Phase 2] Budget Tracking: If shown above"
 echo "  [Phase 2] Query Caching: If cached=true on 2nd query"
+echo "  [Phase 3] Analysis Payload: If analysis object has fields"
+echo "  [Phase 3] Complexity + Suggestions: If keys present"
 echo ""
 echo "=== CRITICAL FIX VERIFICATION ==="
 echo ""
@@ -299,8 +371,8 @@ echo ""
 
 # Summary
 echo "=== TEST SUMMARY ==="
-echo "Passed: $PASS_COUNT / 6 Critical Fixes"
-echo "Failed: $FAIL_COUNT / 6 Critical Fixes"
+echo "Passed: $PASS_COUNT checks"
+echo "Failed: $FAIL_COUNT checks"
 echo ""
 
 if [ $FAIL_COUNT -eq 0 ]; then

@@ -1,4 +1,4 @@
-# Phase 1 & 2 Quick Test Card
+# Phase 1, 2 & 3 Quick Test Card
 
 ## 60-Second Test
 
@@ -32,19 +32,26 @@ curl -s -X POST http://localhost:8000/api/v1/query/execute \
 curl -s -X GET http://localhost:8000/api/v1/query/budget \
   -H "Authorization: Bearer $TOKEN" | jq '.remaining'
 # ✅ Should show amount less than 50000
+
+# 6. Phase 3 analysis payload
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"SELECT 1 as phase3"}' | jq '.analysis'
+# ✅ Should include scan_type, execution_time_ms, complexity, index_suggestions
 ```
 
 ---
 
 ## What Each Test Shows
 
-| Test          | Phase | What It Tests            | Success =              |
-| ------------- | ----- | ------------------------ | ---------------------- |
-| SQL Injection | 1     | Blocks dangerous queries | 400 response           |
-| Query Type    | 1     | Blocks DROP/ALTER        | 400 response           |
-| Cache Miss    | 2     | First query slow         | `cached: false`        |
-| Cache Hit     | 2     | Second query fast        | `cached: true` + 2-5ms |
-| Budget        | 2     | Daily cost tracking      | `remaining < 50000`    |
+| Test          | Phase | What It Tests                  | Success =                              |
+| ------------- | ----- | ------------------------------ | -------------------------------------- |
+| SQL Injection | 1     | Blocks dangerous queries       | 400 response                           |
+| Query Type    | 1     | Blocks DROP/ALTER              | 400 response                           |
+| Cache Miss    | 2     | First query slow               | `cached: false`                        |
+| Cache Hit     | 2     | Second query fast              | `cached: true` + 2-5ms                 |
+| Budget        | 2     | Daily cost tracking            | `remaining < 50000`                    |
+| Analysis      | 3     | Intelligence response metadata | `analysis` object with expected fields |
 
 ---
 
@@ -161,4 +168,5 @@ docker-compose down -v
 - [VERIFICATION_GUIDE.md](VERIFICATION_GUIDE.md) — Detailed tests
 - [TESTING_CHECKLIST.md](docs/TESTING_CHECKLIST.md) — Checkbox format
 - [TESTING_PHASE1_PHASE2.md](docs/TESTING_PHASE1_PHASE2.md) — Comprehensive guide
-- [PHASE2_IMPLEMENTATION.md](docs/PHASE2_IMPLEMENTATION.md) — Architecture details
+- [PHASE2_COMPLETION.md](docs/PHASE2_COMPLETION.md) — Phase 2 details
+- [PHASE3_COMPLETION.md](docs/PHASE3_COMPLETION.md) — Phase 3 details

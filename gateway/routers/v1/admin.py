@@ -2,8 +2,10 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy import select
 from middleware.security.auth import get_current_user
-from models import Role
+from models import Role, SlowQuery
+from utils.db import PrimarySession
 from utils.logger import get_logger
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
@@ -72,4 +74,33 @@ async def get_metrics(request: Request, admin=Depends(require_admin)):
         "error_count": int(await redis.get("metric:error_count") or 0),
         "cache_hits": int(await redis.get("metric:cache_hits") or 0),
         "slow_queries": int(await redis.get("metric:slow_queries") or 0),
+    }
+
+
+@router.get("/slow-queries")
+async def get_slow_queries(limit: int = 50, admin=Depends(require_admin)):
+    """Get latest slow query records."""
+    safe_limit = max(1, min(limit, 200))
+    async with PrimarySession() as session:
+        result = await session.execute(
+            select(SlowQuery).order_by(SlowQuery.created_at.desc()).limit(safe_limit)
+        )
+        rows = result.scalars().all()
+
+    return {
+        "count": len(rows),
+        "items": [
+            {
+                "trace_id": r.trace_id,
+                "user_id": str(r.user_id) if r.user_id else None,
+                "query_fingerprint": r.query_fingerprint,
+                "latency_ms": r.latency_ms,
+                "scan_type": r.scan_type,
+                "rows_scanned": r.rows_scanned,
+                "rows_returned": r.rows_returned,
+                "recommended_index": r.recommended_index,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
     }

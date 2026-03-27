@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     db_replica_url: str
     db_pool_min: int = 5
     db_pool_max: int = 20
+    db_pool_timeout_seconds: int = 30
 
     # === REDIS ===
     redis_url: str
@@ -60,6 +61,7 @@ class Settings(BaseSettings):
 
     # === QUERY LIMITS ===
     query_timeout_seconds: int = 5
+    admin_query_timeout_seconds: int = 10
     auto_limit_default: int = 1000
     cost_threshold_warn: int = 1000
     cost_threshold_block: int = 10000

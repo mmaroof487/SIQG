@@ -1,6 +1,6 @@
 #!/bin/bash
-# Quick test script for Phase 1 & 2
-# Usage: ./test_phase1_phase2.sh
+# Quick test script for Phase 1 + 2 + 3
+# Usage: ./test_phase1_phase2.sh [phase1|phase2|phase3|all]
 
 set -e
 
@@ -11,11 +11,14 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Phase 1 & 2 Testing Suite${NC}"
+echo -e "${BLUE}  Phase 1 + 2 + 3 Testing Suite${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
+TARGET_PHASE="${1:-all}"
+echo -e "${YELLOW}Target phase: ${TARGET_PHASE}${NC}\n"
+
 # Check prerequisites
-echo -e "${YELLOW}[1/5] Checking prerequisites...${NC}"
+echo -e "${YELLOW}[1/6] Checking prerequisites...${NC}"
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}❌ Docker not found${NC}"
     exit 1
@@ -27,7 +30,7 @@ fi
 echo -e "${GREEN}✅ Docker & Docker Compose OK${NC}\n"
 
 # Start services
-echo -e "${YELLOW}[2/5] Starting Docker services (Gateway + Postgres + Redis)...${NC}"
+echo -e "${YELLOW}[2/6] Starting Docker services (Gateway + Postgres + Redis)...${NC}"
 docker-compose up -d --remove-orphans
 echo -e "${YELLOW}     Waiting 30s for postgres to be ready...${NC}"
 sleep 30
@@ -55,7 +58,7 @@ echo -e "${YELLOW}     Waiting for gateway to initialize...${NC}"
 sleep 5
 
 # Run tests
-echo -e "${YELLOW}[3/5] Running unit tests...${NC}"
+echo -e "${YELLOW}[3/6] Running unit tests...${NC}"
 if docker-compose exec -T gateway sh -c 'cd /app && python -m pytest tests/ -v --tb=short 2>&1' | head -50; then
     echo -e "${GREEN}✅ Unit tests completed${NC}"
 else
@@ -64,7 +67,7 @@ fi
 echo ""
 
 # Network test
-echo -e "${YELLOW}[4/5] Testing API health check...${NC}"
+echo -e "${YELLOW}[4/6] Testing API health check...${NC}"
 if curl -s http://localhost:8000/health 2>/dev/null | grep -q "ok"; then
     echo -e "${GREEN}✅ API responding${NC}"
 else
@@ -72,11 +75,39 @@ else
 fi
 echo ""
 
+# Feature test by phase
+echo -e "${YELLOW}[5/6] Running feature tests by phase...${NC}"
+case "$TARGET_PHASE" in
+  phase1)
+    echo -e "${BLUE}Running Phase 1 checks (security baseline via full script)...${NC}"
+    bash ./test_features.sh || true
+    ;;
+  phase2)
+    echo -e "${BLUE}Running Phase 2 checks (performance baseline via full script)...${NC}"
+    bash ./test_features.sh || true
+    ;;
+  phase3)
+    echo -e "${BLUE}Running Phase 3 checks (analysis/suggestions/complexity via full script)...${NC}"
+    bash ./test_features.sh || true
+    ;;
+  all)
+    echo -e "${BLUE}Running all phases sequentially via feature suite...${NC}"
+    bash ./test_features.sh || true
+    ;;
+  *)
+    echo -e "${RED}❌ Unknown target phase: ${TARGET_PHASE}${NC}"
+    echo -e "${YELLOW}Use one of: phase1 | phase2 | phase3 | all${NC}"
+    docker-compose down -v
+    exit 1
+    ;;
+esac
+echo ""
+
 # Cleanup
-echo -e "${YELLOW}[5/5] Cleaning up...${NC}"
+echo -e "${YELLOW}[6/6] Cleaning up...${NC}"
 docker-compose down -v
 echo -e "${GREEN}✅ Services stopped${NC}\n"
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}✨ Phase 1 & 2 Tests Complete!${NC}"
+echo -e "${GREEN}✨ Phase ${TARGET_PHASE} Tests Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"

@@ -11,6 +11,7 @@ primary_engine = create_async_engine(
     settings.db_primary_url,
     pool_size=settings.db_pool_min,
     max_overflow=settings.db_pool_max - settings.db_pool_min,
+    pool_timeout=settings.db_pool_timeout_seconds,
     echo=False,
     pool_pre_ping=True,
 )
@@ -20,6 +21,7 @@ replica_engine = create_async_engine(
     settings.db_replica_url,
     pool_size=settings.db_pool_min,
     max_overflow=settings.db_pool_max - settings.db_pool_min,
+    pool_timeout=settings.db_pool_timeout_seconds,
     echo=False,
     pool_pre_ping=True,
 )

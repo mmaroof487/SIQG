@@ -1,4 +1,4 @@
-# Phase 1 & Phase 2 Verification Guide
+# Phase 1, 2 & 3 Verification Guide
 
 ## Quick Start (3 minutes)
 
@@ -32,7 +32,7 @@ xxx            redis:7            Up (Healthy)        siqg-redis-1
 ./test_features.sh
 ```
 
-This will register a test user and run all Phase 1 & 2 tests automatically.
+This will register a test user and run all Phase 1/2/3 tests automatically.
 
 ---
 
@@ -247,6 +247,53 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 
 ---
 
+## Phase 3: Intelligence Layer
+
+#### Test 3.1: Analysis Payload ✅
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 1 AS phase3"}' | jq '.analysis'
+```
+
+**Expected**: `analysis` contains `scan_type`, `execution_time_ms`, `rows_processed`, `total_cost`, `index_suggestions`, `complexity`
+
+---
+
+#### Test 3.2: Complexity Scoring ✅
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users u JOIN roles r ON u.role_id = r.id"}' \
+  | jq '.analysis.complexity'
+```
+
+**Expected**: score > 0, level present, reasons list present
+
+---
+
+#### Test 3.3: Analysis on Cache Hit ✅
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' > /dev/null
+
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' | jq '{cached, analysis}'
+```
+
+**Expected**: `cached=true` and `analysis` still present
+
+---
+
 ## Verification Using Logs
 
 ### Watch Real-Time Activity
@@ -256,7 +303,7 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 docker-compose logs -f gateway | grep -E "(Cache|Cost|Budget|LIMIT|Fingerprint)"
 ```
 
-### Example Log Output (Phase 2):
+### Example Log Output (Phase 2/3):
 
 ```
 [trace-id] Cache MISS: abc123...
@@ -267,6 +314,8 @@ docker-compose logs -f gateway | grep -E "(Cache|Cost|Budget|LIMIT|Fingerprint)"
 
 [trace-id] Cache HIT: abc123...
 [trace-id] ✅ Cache HIT - returning cached result (2.1ms)
+[trace-id] analysis.scan_type: Seq Scan
+[trace-id] analysis.complexity.level: medium
 ```
 
 ---
@@ -340,6 +389,13 @@ ghi-789-jkl         | user1   | INSERT     | 15.3       | f      | f
 - [ ] Redis has cache keys: `siqg:cache:*`
 - [ ] PostgreSQL audit_log table has entries
 
+### Phase 3 ✅
+
+- [ ] Response includes `analysis` object
+- [ ] `analysis.complexity.level` returned for SELECT
+- [ ] `analysis.index_suggestions` present (array)
+- [ ] Cache hits still return analysis
+
 ---
 
 ## Troubleshooting
@@ -360,7 +416,7 @@ ghi-789-jkl         | user1   | INSERT     | 15.3       | f      | f
 #!/bin/bash
 # Save as: test_all.sh
 
-echo "🚀 Phase 1 & 2 Full Test"
+echo "🚀 Phase 1 + 2 + 3 Full Test"
 
 # Start services
 docker-compose up -d --remove-orphans
@@ -403,25 +459,27 @@ chmod +x test_all.sh
 
 ## Expected Results Summary
 
-| Phase | Feature        | Test Command       | Success Indicator             |
-| ----- | -------------- | ------------------ | ----------------------------- |
-| 1     | SQL Injection  | `OR 1=1` query     | 400 response                  |
-| 1     | Query Blocking | `DROP TABLE`       | 400 response                  |
-| 1     | Rate Limit     | 65 queries in loop | 429 on 61+                    |
-| 2     | Cache Miss     | First SELECT query | `cached: false`               |
-| 2     | Cache Hit      | Same query 2x      | `cached: true`, latency 2-5ms |
-| 2     | Budget         | `/budget` endpoint | 200 with budget values        |
-| 2     | Cost           | Any query          | `cost` field present          |
+| Phase | Feature        | Test Command       | Success Indicator                    |
+| ----- | -------------- | ------------------ | ------------------------------------ |
+| 1     | SQL Injection  | `OR 1=1` query     | 400 response                         |
+| 1     | Query Blocking | `DROP TABLE`       | 400 response                         |
+| 1     | Rate Limit     | 65 queries in loop | 429 on 61+                           |
+| 2     | Cache Miss     | First SELECT query | `cached: false`                      |
+| 2     | Cache Hit      | Same query 2x      | `cached: true`, latency 2-5ms        |
+| 2     | Budget         | `/budget` endpoint | 200 with budget values               |
+| 2     | Cost           | Any query          | `cost` field present                 |
+| 3     | Analysis       | Any SELECT query   | `analysis` object with required keys |
+| 3     | Complexity     | JOIN query         | `analysis.complexity.level` present  |
 
 ---
 
 ## Next Steps
 
-Once Phase 1 & 2 verified:
+Once Phase 1, 2 and 3 are verified:
 
 - ✅ Commit changes to git
 - ✅ Update README with test results
-- ✅ Move to Phase 3 (EXPLAIN ANALYZE, index recommendations)
+- ✅ Move to Phase 4 (alerts and observability expansion)
 
 ---
 

@@ -151,91 +151,91 @@ Opus should respond to each section with:
 
 ### 3.1 Circuit Breaker
 
-- [ ] State is stored in Redis — NOT in a Python global variable
+- [x] State is stored in Redis — NOT in a Python global variable
       (global variable resets on every container restart — Redis persists)
-- [ ] State machine is correct:
+- [x] State machine is correct:
       CLOSED → (N failures) → OPEN → (cooldown) → HALF_OPEN → (success) → CLOSED
       CLOSED → (N failures) → OPEN → (cooldown) → HALF_OPEN → (failure) → OPEN
-- [ ] In OPEN state: check timestamp before returning 503
+- [x] In OPEN state: check timestamp before returning 503
       (don't return 503 forever — check if cooldown has elapsed)
-- [ ] In HALF_OPEN state: only ONE request is let through (not all requests)
-- [ ] Failure counter is reset to 0 when circuit closes (not just when it opens)
-- [ ] Circuit breaker fires a webhook alert when it opens
-- [ ] DB timeout errors count as circuit breaker failures
-- [ ] Circuit breaker check is BEFORE connection pool acquire
+- [x] In HALF_OPEN state: only ONE request is let through (not all requests)
+- [x] Failure counter is reset to 0 when circuit closes (not just when it opens)
+- [x] Circuit breaker fires a webhook alert when it opens
+- [x] DB timeout errors count as circuit breaker failures
+- [x] Circuit breaker check is BEFORE connection pool acquire
       (don't acquire a pool connection only to immediately return 503)
 
 ### 3.2 Column Encryption
 
-- [ ] AES-256-GCM is used — NOT AES-CBC (GCM is authenticated, CBC is not)
-- [ ] A new random nonce (12 bytes) is generated for EVERY encryption call
+- [x] AES-256-GCM is used — NOT AES-CBC (GCM is authenticated, CBC is not)
+- [x] A new random nonce (12 bytes) is generated for EVERY encryption call
       (reusing a nonce with the same key completely breaks GCM security)
-- [ ] Nonce is prepended to ciphertext before base64 encoding: nonce + ct
-- [ ] Decryption extracts nonce as first 12 bytes: data[:12]
-- [ ] Encryption key is exactly 32 bytes — padded or truncated if wrong length
-- [ ] Encrypted values are stored in the DB — never the plaintext
-- [ ] encrypt_columns list is checked case-insensitively (column names vary)
-- [ ] decrypt_value() handles invalid/corrupted ciphertext gracefully (try/except)
-- [ ] Encryption happens BEFORE the query is executed (for INSERT)
-- [ ] Decryption happens AFTER results are fetched (for SELECT)
+- [x] Nonce is prepended to ciphertext before base64 encoding: nonce + ct
+- [x] Decryption extracts nonce as first 12 bytes: data[:12]
+- [x] Encryption key is exactly 32 bytes — padded or truncated if wrong length
+- [x] Encrypted values are stored in the DB — never the plaintext
+- [x] encrypt_columns list is checked case-insensitively (column names vary)
+- [x] decrypt_value() handles invalid/corrupted ciphertext gracefully (try/except)
+- [x] Encryption happens BEFORE the query is executed (for INSERT)
+- [x] Decryption happens AFTER results are fetched (for SELECT)
 
 ### 3.3 PII Masking
 
-- [ ] Masking happens AFTER decryption — mask the plaintext, not the ciphertext
-- [ ] Admin role receives fully decrypted, unmasked values
-- [ ] Mask patterns are correct:
+- [x] Masking happens AFTER decryption — mask the plaintext, not the ciphertext
+- [x] Admin role receives fully decrypted, unmasked values
+- [x] Mask patterns are correct:
       SSN: show last 4 only → **\*-**-6789
       Email: show first char + domain → m**\*@test.com
       Phone: show first 2 + last 2 → 98\*\*\***10
-- [ ] Masking is applied per-column per-row — not replacing the entire row value
-- [ ] None/null values are passed through without masking (don't mask None)
-- [ ] Masking happens on a COPY of the row dict — never mutate the original
+- [x] Masking is applied per-column per-row — not replacing the entire row value
+- [x] None/null values are passed through without masking (don't mask None)
+- [x] Masking happens on a COPY of the row dict — never mutate the original
 
 ### 3.4 R/W Routing
 
-- [ ] SELECT queries go to replica connection
-- [ ] INSERT, UPDATE go to primary connection
-- [ ] First keyword detection is reliable: query.strip().split()[0].upper()
-- [ ] WITH (CTE) queries that contain SELECT are routed to primary (they may modify data)
-- [ ] If replica is down, do NOT silently fall back to primary
+- [x] SELECT queries go to replica connection
+- [x] INSERT, UPDATE go to primary connection
+- [x] First keyword detection is reliable: query.strip().split()[0].upper()
+- [x] WITH (CTE) queries that contain SELECT are routed to primary (they may modify data)
+- [x] If replica is down, do NOT silently fall back to primary
       (silent fallback hides replica failures — log it and surface it)
 
 ### 3.5 Connection Pool
 
-- [ ] Pool is created ONCE at startup in lifespan — not per request
-- [ ] Pool is closed gracefully at shutdown
-- [ ] Pool acquire has a timeout — don't wait forever if pool is exhausted
-- [ ] Pool min/max sizes are configurable via .env
-- [ ] Primary and replica have SEPARATE pools (not the same pool)
+- [x] Pool is created ONCE at startup in lifespan — not per request
+- [x] Pool is closed gracefully at shutdown
+- [x] Pool acquire has a timeout — don't wait forever if pool is exhausted
+- [x] Pool min/max sizes are configurable via .env
+- [x] Primary and replica have SEPARATE pools (not the same pool)
 
 ### 3.6 Query Execution + Timeout
 
-- [ ] asyncio.wait_for() wraps the DB call with the timeout
-- [ ] TimeoutError is caught and returns 504 (Gateway Timeout), not 500
-- [ ] Timeout is configurable per role (admin gets longer timeout)
-- [ ] Retry only happens on TRANSIENT errors (connection reset, too many connections)
-- [ ] Retry does NOT happen on query errors (syntax error, constraint violation)
+- [x] asyncio.wait_for() wraps the DB call with the timeout
+- [x] TimeoutError is caught and returns 504 (Gateway Timeout), not 500
+- [x] Timeout is configurable per role (admin gets longer timeout)
+- [x] Retry only happens on TRANSIENT errors (connection reset, too many connections)
+- [x] Retry does NOT happen on query errors (syntax error, constraint violation)
       (retrying a constraint violation 3 times just fails 3 times — wasteful)
-- [ ] Retry delays are: 100ms, 200ms, 400ms (exponential, not fixed)
-- [ ] After max retries, the failure is recorded for circuit breaker
+- [x] Retry delays are: 100ms, 200ms, 400ms (exponential, not fixed)
+- [x] After max retries, the failure is recorded for circuit breaker
 
 ### 3.7 EXPLAIN ANALYZE
 
-- [ ] EXPLAIN ANALYZE runs as a SEPARATE query AFTER the main query completes
-- [ ] FORMAT JSON is used: EXPLAIN (ANALYZE, FORMAT JSON, BUFFERS)
-- [ ] Seq Scan nodes are found by recursively walking the plan tree
+- [x] EXPLAIN ANALYZE runs as a SEPARATE query AFTER the main query completes
+- [x] FORMAT JSON is used: EXPLAIN (ANALYZE, FORMAT JSON, BUFFERS)
+- [x] Seq Scan nodes are found by recursively walking the plan tree
       (Seq Scan can be nested inside a Hash Join, Nested Loop, etc.)
-- [ ] execution_time_ms is extracted from "Actual Total Time" of the root node
-- [ ] EXPLAIN ANALYZE failure does NOT fail the main request (wrap in try/except)
-- [ ] EXPLAIN result is NOT included in the Redis cache (it's metadata, not result data)
+- [x] execution_time_ms is extracted from "Actual Total Time" of the root node
+- [x] EXPLAIN ANALYZE failure does NOT fail the main request (wrap in try/except)
+- [x] EXPLAIN result is NOT included in the Redis cache (it's metadata, not result data)
 
 ### 3.8 Index Recommendations
 
-- [ ] Rule fires only when: Seq Scan AND the scanned column appears in WHERE clause
-- [ ] Generated DDL is syntactically correct: CREATE INDEX idx*{table}*{col} ON {table}({col});
-- [ ] Multiple suggestions are possible (multiple Seq Scans in one query)
-- [ ] Duplicate suggestions are deduplicated (don't suggest same index twice)
-- [ ] Suggestions are returned even on cache hits (re-run EXPLAIN or store with cache)
+- [x] Rule fires only when: Seq Scan AND the scanned column appears in WHERE clause
+- [x] Generated DDL is syntactically correct: CREATE INDEX idx*{table}*{col} ON {table}({col});
+- [x] Multiple suggestions are possible (multiple Seq Scans in one query)
+- [x] Duplicate suggestions are deduplicated (don't suggest same index twice)
+- [x] Suggestions are returned even on cache hits (re-run EXPLAIN or store with cache)
 
 ---
 

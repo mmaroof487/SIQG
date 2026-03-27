@@ -1,8 +1,11 @@
 """Circuit breaker pattern for DB resilience."""
-from fastapi import Request, HTTPException
+import asyncio
+import json
+import time
+import urllib.request
+from fastapi import HTTPException, Request
 from config import settings
 from utils.logger import get_logger
-import time
 
 logger = get_logger(__name__)
 
@@ -26,8 +29,6 @@ async def check_circuit_breaker(request: Request) -> str:
     """
     redis = request.app.state.redis
     cb_state_key = "circuit_breaker:state"
-    cb_count_key = "circuit_breaker:failure_count"
-
     state = await redis.get(cb_state_key) or CircuitBreakerState.CLOSED
 
     # If OPEN, check if cooldown period has passed
@@ -40,11 +41,22 @@ async def check_circuit_breaker(request: Request) -> str:
                 # Transition to HALF_OPEN
                 logger.info(f"Circuit breaker: OPEN → HALF_OPEN (cooldown {elapsed:.0f}s passed)")
                 await redis.setex(cb_state_key, settings.circuit_cooldown_seconds * 10, CircuitBreakerState.HALF_OPEN)
-                return CircuitBreakerState.HALF_OPEN
+                state = CircuitBreakerState.HALF_OPEN
 
         # Still OPEN, reject request
-        logger.warning("Circuit breaker OPEN: rejecting request with 503")
-        raise HTTPException(status_code=503, detail="Database temporarily unavailable. Circuit breaker is OPEN.")
+        if state == CircuitBreakerState.OPEN:
+            logger.warning("Circuit breaker OPEN: rejecting request with 503")
+            raise HTTPException(status_code=503, detail="Database temporarily unavailable. Circuit breaker is OPEN.")
+
+    # In HALF_OPEN, allow only one probe request at a time.
+    if state == CircuitBreakerState.HALF_OPEN:
+        probe_key = "circuit_breaker:half_open_probe"
+        locked = await redis.set(probe_key, "1", ex=max(settings.query_timeout_seconds, 1) + 2, nx=True)
+        if not locked:
+            raise HTTPException(
+                status_code=503,
+                detail="Database recovery probe in progress (HALF_OPEN).",
+            )
 
     return state
 
@@ -60,6 +72,7 @@ async def record_success(request: Request):
     if state == CircuitBreakerState.HALF_OPEN:
         await redis.delete(cb_state_key)  # Back to CLOSED (default)
         await redis.delete(cb_count_key)
+        await redis.delete("circuit_breaker:half_open_probe")
         logger.info("Circuit breaker: HALF_OPEN → CLOSED (recovery successful)")
         return
 
@@ -72,6 +85,28 @@ async def record_failure(request: Request):
     redis = request.app.state.redis
     cb_state_key = "circuit_breaker:state"
     cb_count_key = "circuit_breaker:failure_count"
+    state = await redis.get(cb_state_key) or CircuitBreakerState.CLOSED
+
+    # HALF_OPEN -> OPEN immediately on any failure.
+    if state == CircuitBreakerState.HALF_OPEN:
+        await redis.setex(cb_state_key, settings.circuit_cooldown_seconds * 10, CircuitBreakerState.OPEN)
+        await redis.setex("circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
+        await redis.delete("circuit_breaker:half_open_probe")
+        if settings.webhook_url:
+            asyncio.create_task(
+                _send_circuit_open_webhook(
+                    settings.webhook_url,
+                    {
+                        "event": "circuit_breaker_open",
+                        "failure_count": 1,
+                        "threshold": int(settings.circuit_failure_threshold),
+                        "opened_at": time.time(),
+                        "reason": "half_open_probe_failed",
+                    },
+                )
+            )
+        logger.error("Circuit breaker HALF_OPEN -> OPEN due to failed probe")
+        return
 
     # Increment failure count
     count = await redis.incr(cb_count_key)
@@ -84,3 +119,36 @@ async def record_failure(request: Request):
         logger.error(f"Circuit breaker OPEN: {count} >= {settings.circuit_failure_threshold} failures")
         await redis.setex(cb_state_key, settings.circuit_cooldown_seconds * 10, CircuitBreakerState.OPEN)
         await redis.setex("circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
+        await redis.delete("circuit_breaker:half_open_probe")
+        if settings.webhook_url:
+            asyncio.create_task(
+                _send_circuit_open_webhook(
+                    settings.webhook_url,
+                    {
+                        "event": "circuit_breaker_open",
+                        "failure_count": int(count),
+                        "threshold": int(settings.circuit_failure_threshold),
+                        "opened_at": time.time(),
+                    },
+                )
+            )
+
+
+async def _send_circuit_open_webhook(url: str, payload: dict):
+    """Best-effort webhook alert when circuit opens."""
+    try:
+        body = json.dumps(payload).encode("utf-8")
+
+        def _post():
+            req = urllib.request.Request(
+                url=url,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=3):
+                pass
+
+        await asyncio.to_thread(_post)
+    except Exception as e:
+        logger.warning(f"Circuit breaker webhook failed: {e}")

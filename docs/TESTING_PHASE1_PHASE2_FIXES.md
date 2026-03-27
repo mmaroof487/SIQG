@@ -1,7 +1,7 @@
-# Phase 1 & 2 Critical Fixes - Verification Tests
+# Phase 1, 2 & 3 Critical Fixes - Verification Tests
 
 **Date**: March 26, 2026
-**Purpose**: Verify all 8 critical security & performance fixes are working correctly
+**Purpose**: Verify critical security, performance, and intelligence fixes are working correctly
 
 ---
 
@@ -15,7 +15,7 @@ docker-compose up -d && sleep 25
 bash test_features.sh
 ```
 
-Expected: All 6 critical fixes verified with PASS status.
+Expected: Phase 1/2/3 checks verified with PASS status.
 
 ---
 
@@ -315,6 +315,62 @@ bash test_features.sh
 # ✅ Fix 6: Auto-LIMIT case insensitive (limit/LIMIT/Limit)
 # ✅ Fix 7: RBAC configuration (loads from config)
 # ✅ Fix 8: API key DB fallback (auth chain works)
+# ✅ Phase 3: analysis payload fields present
+# ✅ Phase 3: index suggestions shape + dedupe
+# ✅ Phase 3: complexity score returned
+# ✅ Phase 3: analysis returned on cache hits
+```
+
+---
+
+## Phase 3 Additions Verification
+
+### Addition 1: Analysis payload contract
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"testpass123"}' | jq -r '.access_token')
+
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 1"}' | jq '.analysis'
+```
+
+### Addition 2: Index suggestion rule + dedupe
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users WHERE id = 1"}' \
+  | jq '.analysis.index_suggestions'
+```
+
+### Addition 3: Complexity scoring
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users u JOIN roles r ON u.role_id = r.id"}' \
+  | jq '.analysis.complexity'
+```
+
+### Addition 4: Cache-hit analysis behavior
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' > /dev/null
+
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' \
+  | jq '{cached, analysis}'
 ```
 
 ---

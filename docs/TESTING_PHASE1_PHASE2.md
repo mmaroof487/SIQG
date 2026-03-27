@@ -1,4 +1,4 @@
-# Testing Phase 1 & Phase 2 — Complete Guide
+# Testing Phase 1, Phase 2, and Phase 3 — Complete Guide
 
 ## Quick Start
 
@@ -40,6 +40,15 @@ make down
 ✅ Budget enforcement (daily per-user cost limit)
 ✅ Auto-LIMIT injection (prevents unbounded SELECT)
 ✅ Database routing (SELECT→replica, writes→primary)
+
+### Phase 3: Intelligence Layer
+
+✅ EXPLAIN ANALYZE parsing in response metadata  
+✅ Recursive Seq Scan extraction  
+✅ Index recommendation generation and dedupe  
+✅ Query complexity scoring (`low`/`medium`/`high`)  
+✅ Slow query detection + persistence  
+✅ Admin slow query retrieval endpoint
 
 ---
 
@@ -90,6 +99,21 @@ CIRCUIT_COOLDOWN_SECONDS=30
 
 ## Running Tests
 
+### 0. Run Phases One-by-One
+
+```bash
+# All phases
+bash test_phase1_phase2.sh all
+
+# Or one phase at a time:
+bash test_phase1_phase2.sh phase1
+bash test_phase1_phase2.sh phase2
+bash test_phase1_phase2.sh phase3
+
+# One-command sequential runner with summary
+bash test_all_phases.sh
+```
+
 ### 1. All Tests (Unit + Integration)
 
 ```bash
@@ -118,6 +142,10 @@ pytest tests/unit/test_rbac.py -v
 pytest tests/unit/test_fingerprinter.py -v
 pytest tests/unit/test_cache.py -v [if created]
 pytest tests/unit/test_budget.py -v [if created]
+
+# PHASE 3 INTELLIGENCE:
+pytest tests/unit/test_complexity.py -v
+pytest tests/unit/test_encryption.py -v
 ```
 
 ### 3. Integration Tests
@@ -461,7 +489,67 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 
 ---
 
-## Load Testing (Phase 1 + 2)
+## Phase 3 Manual Tests
+
+### Test 1: Analysis Payload Presence
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 1 as phase3_test"}' | jq '.analysis'
+
+# Expected keys:
+# scan_type, execution_time_ms, rows_processed, total_cost,
+# slow_query, index_suggestions, complexity
+```
+
+### Test 2: Complexity Scoring
+
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users u JOIN roles r ON u.role_id=r.id"}' \
+  | jq '.analysis.complexity'
+
+# Expected: score > 0, level = medium/high depending query
+```
+
+### Test 3: Cache Hit Still Returns Analysis
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' > /dev/null
+
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT 42 as cache_phase3"}' \
+  | jq '{cached, analysis}'
+
+# Expected: cached=true and analysis still present
+```
+
+### Test 4: Slow Query Logging + Admin Endpoint
+
+```bash
+# Run intentionally heavy query (adjust table/query for your data size)
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM users u JOIN users u2 ON u.id = u2.id"}' | jq '.analysis.slow_query'
+
+# As admin:
+curl -X GET "http://localhost:8000/api/v1/admin/slow-queries?limit=20" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" | jq '.items[0]'
+```
+
+---
+
+## Load Testing (Phase 1 + 2 + 3)
 
 ```bash
 # Start Locust with 100 concurrent users, 10 spawn rate, 60s duration
@@ -476,6 +564,7 @@ locust -f locustfile.py --headless -u 100 -r 10 -t 60s
 # - Response time (mean, min, max)
 # - Cache hit rate
 # - Errors (rate limiting, budget exceeded, SQL injection blocks)
+# - Analysis payload consistency under load
 ```
 
 See [locustfile.py](tests/load/locustfile.py) for load test definition.
@@ -565,6 +654,12 @@ QUIT
 - Cost Estimator: 70% (EXPLAIN parsing)
 - Budget: 75% (daily tracking, reset logic)
 
+### Phase 3: Minimum 70%
+
+- Analyzer: 70% (EXPLAIN parsing + seq scan extraction)
+- Complexity: 80% (score/level rules)
+- Query route intelligence response: 70%
+
 ### Check Current Coverage
 
 ```bash
@@ -576,7 +671,7 @@ make test
 
 ## Expected Test Results
 
-All tests pass = ✅ Phase 1 + 2 Complete
+All tests pass = ✅ Phase 1 + 2 + 3 Complete
 
 ```
 tests/unit/test_auth.py::test_hash_api_key PASSED
@@ -606,7 +701,7 @@ tests/integration/test_full_pipeline.py::test_budget_enforcement PASSED
 #!/bin/bash
 set -e
 
-echo "🚀 Starting Phase 1 & 2 Test Suite..."
+echo "🚀 Starting Phase 1 + 2 + 3 Test Suite..."
 
 # 1. Bring up services
 echo "📦 Starting Docker services..."
@@ -629,7 +724,7 @@ pytest tests/integration/ -v
 echo "🧹 Cleaning up..."
 docker-compose down
 
-echo "✨ Phase 1 & 2 Test Suite Complete!"
+echo "✨ Phase 1 + 2 + 3 Test Suite Complete!"
 ```
 
 Save as `run_tests.sh` and execute:

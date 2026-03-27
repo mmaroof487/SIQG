@@ -4,9 +4,15 @@ from config import settings
 from utils.logger import get_logger
 from utils.db import PrimarySession, ReplicaSession
 import asyncio
-import json
+from sqlalchemy import text
+from middleware.execution.circuit_breaker import check_circuit_breaker, record_failure, record_success
 
 logger = get_logger(__name__)
+
+
+def _first_keyword(query: str) -> str:
+    parts = query.strip().split()
+    return parts[0].upper() if parts else ""
 
 
 def get_session_for_query(query: str, request: Request):
@@ -17,12 +23,22 @@ def get_session_for_query(query: str, request: Request):
     
     Returns async context manager for session.
     """
-    query_upper = query.upper().strip()
+    keyword = _first_keyword(query)
+    query_upper = query.strip().upper()
 
-    if query_upper.startswith("SELECT"):
-        return ReplicaSession()
-    else:
+    # Route CTEs to primary for safety because CTEs can include writes.
+    if keyword == "WITH":
         return PrimarySession()
+    if keyword == "SELECT":
+        return ReplicaSession()
+    return PrimarySession()
+
+
+def _timeout_for_role(request: Request) -> int:
+    role = getattr(request.state, "role", "guest")
+    if role == "admin":
+        return settings.admin_query_timeout_seconds
+    return settings.query_timeout_seconds
 
 
 async def execute_with_timeout(
@@ -36,7 +52,7 @@ async def execute_with_timeout(
     Returns: (rows, column_names)
     """
     if timeout_seconds is None:
-        timeout_seconds = settings.query_timeout_seconds
+        timeout_seconds = _timeout_for_role(request)
 
     # Retry logic: 100ms, 200ms, 400ms (3 attempts)
     retry_delays = [0.1, 0.2, 0.4]
@@ -44,20 +60,24 @@ async def execute_with_timeout(
 
     for attempt in range(len(retry_delays) + 1):
         try:
+            await check_circuit_breaker(request)
             session_ctx = get_session_for_query(query, request)
             async with session_ctx as session:
                 # Set query timeout
-                await session.execute(f"SET statement_timeout = {timeout_seconds * 1000}")
+                await session.execute(text(f"SET statement_timeout = {timeout_seconds * 1000}"))
 
                 # Execute query
                 result = await asyncio.wait_for(
-                    session.execute(query),
+                    session.execute(text(query)),
                     timeout=timeout_seconds
                 )
-                
-                rows = result.fetchall()
+
+                try:
+                    rows = result.fetchall()
+                except Exception:
+                    rows = []
                 column_names = list(result.keys()) if result.keys() else []
-                
+                await record_success(request)
                 logger.info(f"Query executed: {len(rows)} rows")
                 return rows, column_names
 
@@ -66,6 +86,9 @@ async def execute_with_timeout(
             logger.warning(f"Query timeout (attempt {attempt + 1}): {last_error}")
             if attempt < len(retry_delays):
                 await asyncio.sleep(retry_delays[attempt])
+                continue
+            await record_failure(request)
+            raise HTTPException(status_code=504, detail="Gateway Timeout")
 
         except Exception as e:
             last_error = str(e)
@@ -74,6 +97,8 @@ async def execute_with_timeout(
                 logger.warning(f"Transient error (attempt {attempt + 1}): {e}")
                 if attempt < len(retry_delays):
                     await asyncio.sleep(retry_delays[attempt])
+                else:
+                    await record_failure(request)
                 continue
             else:
                 # Non-transient error, fail immediately
@@ -81,5 +106,6 @@ async def execute_with_timeout(
                 raise HTTPException(status_code=400, detail=str(e)[:100])
 
     # All retries failed
+    await record_failure(request)
     logger.error(f"Query failed after {len(retry_delays) + 1} attempts: {last_error}")
     raise HTTPException(status_code=500, detail=f"Database error: {last_error}")

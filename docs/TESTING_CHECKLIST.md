@@ -1,6 +1,6 @@
-# Phase 1 & Phase 2 Testing Checklist
+# Phase 1, Phase 2 & Phase 3 Testing Checklist
 
-Use this checklist to verify all Phase 1 & 2 features are working correctly.
+Use this checklist to verify all Phase 1, 2 and 3 features are working correctly.
 
 ---
 
@@ -8,7 +8,8 @@ Use this checklist to verify all Phase 1 & 2 features are working correctly.
 
 - **Full Testing Guide**: [TESTING_PHASE1_PHASE2.md](TESTING_PHASE1_PHASE2.md)
 - **Phase 1 Details**: [PHASE1_COMPLETION.md](PHASE1_COMPLETION.md)
-- **Phase 2 Details**: [PHASE2_IMPLEMENTATION.md](PHASE2_IMPLEMENTATION.md)
+- **Phase 2 Details**: [PHASE2_COMPLETION.md](PHASE2_COMPLETION.md)
+- **Phase 3 Details**: [PHASE3_COMPLETION.md](PHASE3_COMPLETION.md)
 
 ---
 
@@ -137,6 +138,37 @@ Use this checklist to verify all Phase 1 & 2 features are working correctly.
 - [ ] INSERT/UPDATE/DELETE routed to **primary**
 - [ ] Can verify with: `SELECT inet_server_addr()` → gives replica IP
 - [ ] Write operations commit to primary only
+
+---
+
+## Phase 3: Intelligence Layer ✅
+
+### EXPLAIN ANALYZE Metadata
+
+- [ ] Response includes `analysis.scan_type`
+- [ ] Response includes `analysis.execution_time_ms`
+- [ ] Response includes `analysis.rows_processed`
+- [ ] Response includes `analysis.total_cost`
+- [ ] EXPLAIN failure does not fail primary request
+
+### Index Recommendations
+
+- [ ] `analysis.index_suggestions` is present (array)
+- [ ] Suggestions include `table`, `column`, `reason`, `ddl`
+- [ ] Duplicate suggestions are deduplicated
+- [ ] Suggestions still available on cache hits
+
+### Complexity Scoring
+
+- [ ] `analysis.complexity.score` is returned
+- [ ] `analysis.complexity.level` is one of `low/medium/high`
+- [ ] `analysis.complexity.reasons` is populated for complex queries
+
+### Slow Query Logging
+
+- [ ] Slow queries set `analysis.slow_query=true` when threshold exceeded
+- [ ] Slow query records are persisted
+- [ ] Admin endpoint `GET /api/v1/admin/slow-queries` returns recent records
 
 ---
 
@@ -316,15 +348,16 @@ QUIT
 
 ---
 
-## Checkpoint: Ready for Phase 3?
+## Checkpoint: Ready for Phase 4?
 
-Before starting Phase 3 (EXPLAIN ANALYZE, index recommendations), verify:
+Before starting Phase 4, verify:
 
 - [ ] All Phase 1 security tests pass
 - [ ] All Phase 2 performance tests pass
+- [ ] All Phase 3 intelligence tests pass
 - [ ] Test coverage ≥ 70%
 - [ ] No errors in application logs
 - [ ] Cache hit rate >30% in load test
 - [ ] Budget enforcement working correctly
 
-If all checkboxes ✅, proceed to Phase 3!
+If all checkboxes ✅, proceed to Phase 4!
