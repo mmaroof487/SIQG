@@ -18,7 +18,14 @@ async def test_circuit_breaker_closed(mock_request):
 
 @pytest.mark.asyncio
 async def test_circuit_breaker_open(mock_request):
-    mock_request.app.state.redis.get.return_value = CircuitBreakerState.OPEN
+    async def mock_redis_get(key):
+        if "state" in key:
+            return CircuitBreakerState.OPEN
+        # For 'circuit_breaker:opened_at' return None so it skips cooldown
+        return None
+        
+    mock_request.app.state.redis.get.side_effect = mock_redis_get
+    
     with pytest.raises(HTTPException) as exc:
         await check_circuit_breaker(mock_request)
     assert exc.value.status_code == 503
