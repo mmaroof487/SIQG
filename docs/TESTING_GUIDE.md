@@ -1,0 +1,145 @@
+# SIQG Testing Guide (Phases 1-3)
+
+## Quick Start
+The fastest way to verify the entire system (Security, Performance, and Intelligence layers) is to use the integrated test orchestration script:
+
+```bash
+bash test_all_phases.sh
+```
+This script will automatically rebuild the gateway, provision the primary and replica databases, flush the Redis persistent cache, and run every feature test sequentially.
+
+---
+
+## What Each Phase Tests
+
+### Phase 1: Security Layer
+✅ JWT authentication
+✅ Brute force protection (5 attempts → 15min lockout)
+✅ IP filtering (allow/blocklist)
+✅ Rate limiting (60 queries/min)
+✅ SQL injection detection (regex patterns)
+✅ RBAC permission checks (Admin/Readonly/Guest)
+✅ Query type allowlist (SELECT+INSERT allowed, DROP blocked)
+
+### Phase 2: Performance Layer
+✅ Query fingerprinting (SHA-256 of normalized query)
+✅ Redis cache (2-5ms hits on identical queries)
+✅ Cache invalidation (table-tagged, triggers on INSERT/UPDATE/DELETE)
+✅ Cost estimation (EXPLAIN without execution)
+✅ Budget enforcement (daily per-user cost limit)
+✅ Auto-LIMIT injection (prevents unbounded SELECT)
+✅ Database routing (SELECT→replica, writes→primary)
+
+### Phase 3: Intelligence & Resilience Layer
+✅ EXPLAIN ANALYZE parsing in response metadata
+✅ Recursive Seq Scan extraction & Index Recommendations
+✅ Query complexity scoring (`low`/`medium`/`high`)
+✅ Circuit Breaker State Management (Open/Half-Open/Closed)
+✅ Column Encryption (AES-256-GCM) & RBAC Masking
+✅ Slow query detection + persistence
+
+---
+
+## Manual Testing with curl
+
+### Setup: Get a Token
+
+1. **Start services**:
+```bash
+docker-compose up -d --build
+```
+
+2. **Register a test user**:
+```bash
+export TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "testuser", "email": "test@example.com", "password": "Test@1234"}' | jq -r '.access_token')
+
+echo $TOKEN
+```
+
+---
+
+## Phase 1 Manual Tests
+
+### Test 1: SQL Injection Detection
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM users WHERE id = 1 OR 1=1; DROP TABLE users;"}'
+# Expected: 400 Bad Request, "SQL injection pattern detected"
+```
+
+### Test 2: Dangerous Query Blocking
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "DROP TABLE users"}'
+# Expected: 400 Bad Request, "DROP queries are not allowed"
+```
+
+---
+
+## Phase 2 Manual Tests
+
+### Test 1: Cache Hit (2-5ms)
+**First execution (CACHE MISS):**
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query": "SELECT 1 as test_value"}' | jq '{latency_ms, cached}'
+# Expected: cached=false, latency_ms=~45.0
+```
+
+**Identical query (CACHE HIT):**
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query": "SELECT 1 as test_value"}' | jq '{latency_ms, cached}'
+# Expected: cached=true, latency_ms=~2.0
+```
+
+### Test 2: Budget Enforcement
+```bash
+# View current usage:
+curl -X GET http://localhost:8000/api/v1/query/budget \
+  -H "Authorization: Bearer $TOKEN"
+# Expected: Shows daily_budget, current_usage, remaining, and resets_at
+```
+
+---
+
+## Phase 3 Manual Tests
+
+### Test 1: Analysis Payload & Complexity Scoring
+```bash
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"SELECT 1 as phase3_test"}' | jq '.analysis'
+# Expected keys: scan_type, execution_time_ms, rows_processed, total_cost, slow_query, index_suggestions, complexity
+```
+
+### Test 2: Index Suggestions (Engine Check)
+```bash
+# Querying a native system table to force the analyzer to profile it
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"SELECT * FROM pg_database WHERE datname = '\'postgres\''"}' | jq '.analysis.index_suggestions'
+# Expected: Array of suggestions if a Seq Scan was forced containing DDL create statements
+```
+
+---
+
+## Load Testing (Phase 1 + 2 + 3)
+If you want to view the behavior of rate-limiting, circuit breakers, and connection pooling under extreme pressure:
+
+```bash
+# Start Locust with 100 concurrent users, 10 spawn rate, 60s duration
+make load-test
+# Or manually:
+cd tests/load
+locust -f locustfile.py --headless -u 100 -r 10 -t 60s
+```
+Metrics Observed: Cache hit rate, API lockouts (429s for budget/rate limits), and Circuit Breaker pop events (503s).

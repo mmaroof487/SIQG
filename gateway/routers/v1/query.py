@@ -72,6 +72,8 @@ async def execute_query(
 
     trace_id = str(uuid.uuid4())
     request.state.trace_id = trace_id
+    
+    request_start_time = time.time()
 
     query_type = "UNKNOWN"
     is_select = False
@@ -137,15 +139,15 @@ async def execute_query(
                     query_type=query_type,
                     rows=cached_data.get("rows", []),
                     rows_count=cached_data.get("rows_count", 0),
-                    latency_ms=cached_data.get("latency_ms", 0),
+                    latency_ms=(time.time() - request_start_time) * 1000,
                     cached=True,
                     slow=False,
                     cost=cached_data.get("cost", 0),
                     analysis={
-                        "scan_type": cached_explain.get("scan_type"),
-                        "execution_time_ms": cached_explain.get("execution_time_ms"),
-                        "rows_processed": cached_explain.get("rows_processed"),
-                        "total_cost": cached_explain.get("total_cost"),
+                        "scan_type": cached_explain.get("scan_type", "Unknown"),
+                        "execution_time_ms": cached_explain.get("execution_time_ms", 0.0),
+                        "rows_processed": cached_explain.get("rows_processed", 0),
+                        "total_cost": cached_explain.get("total_cost", cost if cost is not None else 0.0),
                         "slow_query": (cached_explain.get("execution_time_ms", 0) > settings.slow_query_threshold_ms),
                         "index_suggestions": cached_suggestions,
                         "complexity": score_complexity(clean_query),
@@ -208,7 +210,8 @@ async def execute_query(
             # Decrypt first, then apply RBAC masking.
             rows_dict = decrypt_rows(rows_dict)
 
-        latency_ms = (time.time() - start_time) * 1000
+        # Measure full end-to-end turnaround latency for API metrics
+        latency_ms = (time.time() - request_start_time) * 1000
 
         logger.debug(f"[{trace_id}] ✅ Query executed in {latency_ms:.1f}ms")
 
@@ -308,10 +311,10 @@ async def execute_query(
             cost=cost,
             recommended_index=recommended_index,
             analysis={
-                "scan_type": explain_result.get("scan_type"),
-                "execution_time_ms": explain_result.get("execution_time_ms"),
-                "rows_processed": explain_result.get("rows_processed"),
-                "total_cost": explain_result.get("total_cost"),
+                "scan_type": explain_result.get("scan_type", "Unknown"),
+                "execution_time_ms": explain_result.get("execution_time_ms", 0.0),
+                "rows_processed": explain_result.get("rows_processed", 0),
+                "total_cost": explain_result.get("total_cost", cost if cost is not None else 0.0),
                 "slow_query": is_slow,
                 "index_suggestions": suggestions,
                 "complexity": complexity,

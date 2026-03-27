@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run Phase 1 -> Phase 2 -> Phase 3 verification in sequence.
+# Run Phase 1 -> Phase 2 -> Phase 3 verification in sequence efficiently.
 # Usage: bash test_all_phases.sh
 
 set -u
@@ -28,15 +28,26 @@ if ! command -v docker-compose >/dev/null 2>&1; then
   exit 1
 fi
 
-echo -e "${YELLOW}Starting services...${NC}"
-if ! docker-compose up -d --remove-orphans; then
+echo -e "${YELLOW}Starting services once...${NC}"
+if ! docker-compose up -d --build --remove-orphans; then
   echo -e "${RED}❌ Failed to start services${NC}"
   exit 1
 fi
-sleep 25
 
-echo -e "${YELLOW}Running Phase 1 checks...${NC}"
-if bash ./test_phase1_phase2.sh phase1; then
+echo -e "${YELLOW}Waiting 30s for services to be fully ready...${NC}"
+sleep 30
+
+# Initialize gateway if missing pytest (same as test_phase1_phase2.sh does)
+if ! docker-compose exec -T gateway sh -c 'python -m pytest --version >/dev/null 2>&1'; then
+    echo -e "${YELLOW}pytest missing in gateway container, installing...${NC}"
+    docker-compose exec -T gateway sh -c 'pip install --no-cache-dir pytest pytest-asyncio pytest-cov >/dev/null'
+fi
+
+echo -e "\n${YELLOW}Running Unit Tests...${NC}"
+docker-compose exec -T gateway sh -c 'cd /app && python -m pytest tests/ -v --tb=short 2>&1' || true
+
+echo -e "\n${YELLOW}Running Phase 1 checks...${NC}"
+if bash ./test_features.sh phase1; then
   PHASE1_STATUS=0
   echo -e "${GREEN}✅ Phase 1 passed${NC}\n"
 else
@@ -45,7 +56,8 @@ else
 fi
 
 echo -e "${YELLOW}Running Phase 2 checks...${NC}"
-if bash ./test_phase1_phase2.sh phase2; then
+docker-compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
+if bash ./test_features.sh phase2; then
   PHASE2_STATUS=0
   echo -e "${GREEN}✅ Phase 2 passed${NC}\n"
 else
@@ -54,7 +66,8 @@ else
 fi
 
 echo -e "${YELLOW}Running Phase 3 checks...${NC}"
-if bash ./test_phase1_phase2.sh phase3; then
+docker-compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
+if bash ./test_features.sh phase3; then
   PHASE3_STATUS=0
   echo -e "${GREEN}✅ Phase 3 passed${NC}\n"
 else

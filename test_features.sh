@@ -2,14 +2,16 @@
 # Test script for Phase 1 + 2 + 3 features using curl.
 # Runs checks phase-by-phase so each layer can be verified independently.
 
-set -e
+set -euo pipefail
 
 BASE_URL="http://localhost:8000"
 PASS_COUNT=0
 FAIL_COUNT=0
+TARGET_PHASE="${1:-all}"
 
 echo "🔐 === Phase 1 + 2 + 3 Comprehensive Test Suite ==="
 echo "Testing security, performance, and intelligence layers"
+echo "Target phase: ${TARGET_PHASE}"
 echo ""
 
 # 1. Get or create user
@@ -55,15 +57,31 @@ test_result() {
     local result="$2"
     if [ "$result" == "PASS" ]; then
         echo "✅ $test_name"
-        ((PASS_COUNT++))
+        PASS_COUNT=$((PASS_COUNT + 1))
     else
         echo "❌ $test_name"
-        ((FAIL_COUNT++))
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+}
+
+require_detail_contains() {
+    local test_name="$1"
+    local response="$2"
+    local expected="$3"
+    local detail
+    detail=$(echo "$response" | jq -r '.detail' 2>/dev/null || echo "")
+    if [[ "$detail" == *"$expected"* ]]; then
+        test_result "$test_name" "PASS"
+    else
+        test_result "$test_name" "FAIL"
+        echo "     Expected detail contains: $expected"
+        echo "     Actual response: $response"
     fi
 }
 
 echo "=== PHASE 1: SECURITY ==="
 echo ""
+if [[ "$TARGET_PHASE" == "phase1" || "$TARGET_PHASE" == "all" ]]; then
 
 # 2. Test SQL Injection Blocking
 echo "2️⃣ [P1] Testing SQL Injection Detection (should be BLOCKED)..."
@@ -74,9 +92,10 @@ RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
 
 STATUS=$(echo "$RESPONSE" | jq -r '.detail' 2>/dev/null)
 if [[ "$STATUS" == *"SQL injection"* ]] || [[ "$STATUS" == *"injection"* ]]; then
-    echo "✅ BLOCKED: $STATUS"
+    test_result "SQL injection query blocked" "PASS"
 else
-    echo "⚠️ Response: $RESPONSE"
+    test_result "SQL injection query blocked" "FAIL"
+    echo "     Response: $RESPONSE"
 fi
 echo ""
 
@@ -88,10 +107,11 @@ RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
   -d '{"query":"DROP TABLE users"}')
 
 STATUS=$(echo "$RESPONSE" | jq -r '.detail' 2>/dev/null)
-if [[ "$STATUS" == *"not allowed"* ]]; then
-    echo "✅ BLOCKED: $STATUS"
+if [[ "$STATUS" == *"Query type not allowed: DROP"* ]]; then
+    test_result "DROP blocked with query-type error" "PASS"
 else
-    echo "⚠️ Response: $RESPONSE"
+    test_result "DROP blocked with query-type error" "FAIL"
+    echo "     Response: $RESPONSE"
 fi
 echo ""
 
@@ -106,7 +126,7 @@ for i in {1..65}; do
       -d '{"query":"SELECT 1"}')
 
     STATUS=$(echo "$RESPONSE" | jq -r '.detail' 2>/dev/null)
-    if [[ "$STATUS" == *"rate"* ]] || [[ "$STATUS" == *"limit"* ]]; then
+    if [[ "${STATUS,,}" == *"rate"* ]] || [[ "${STATUS,,}" == *"limit"* ]]; then
         RATE_LIMITED=true
         echo "✅ Rate limit triggered after request $i"
         break
@@ -114,13 +134,18 @@ for i in {1..65}; do
 done
 
 if [ "$RATE_LIMITED" = false ]; then
-    echo "⚠️ Rate limit not triggered (may need 60+ sequential requests)"
+    test_result "Rate limit triggers by 65 requests" "FAIL"
+    echo "     Rate limit did not trigger"
+else
+    test_result "Rate limit triggers by 65 requests" "PASS"
 fi
 echo ""
+fi
 
 echo ""
 echo "=== PHASE 2: PERFORMANCE ==="
 echo ""
+if [[ "$TARGET_PHASE" == "phase2" || "$TARGET_PHASE" == "all" ]]; then
 
 # 5. Test Budget Status (Phase 2)
 echo "5️⃣ [P2] Checking Budget Status..."
@@ -131,11 +156,12 @@ DAILY_BUDGET=$(echo "$RESPONSE" | jq -r '.daily_budget' 2>/dev/null)
 CURRENT_USAGE=$(echo "$RESPONSE" | jq -r '.current_usage' 2>/dev/null)
 
 if [ "$DAILY_BUDGET" != "null" ]; then
-    echo "✅ Budget tracking working"
+    test_result "Budget endpoint returns values" "PASS"
     echo "   Daily Budget: $DAILY_BUDGET cost units"
     echo "   Current Usage: $CURRENT_USAGE cost units"
 else
-    echo "⚠️ Budget endpoint response: $RESPONSE"
+    test_result "Budget endpoint returns values" "FAIL"
+    echo "     Response: $RESPONSE"
 fi
 echo ""
 
@@ -176,18 +202,22 @@ elif [ "$LATENCY1" != "null" ]; then
     echo "   ├─ Cached: $CACHED2"
 
     if [ "$CACHED2" = "true" ]; then
-        echo "   ✅ Cache working! (Hit: ${LATENCY2}ms vs Miss: ${LATENCY1}ms)"
+        test_result "Cache hit on repeated query" "PASS"
     else
-        echo "   ⚠️ Cache not hit on second query"
+        test_result "Cache hit on repeated query" "FAIL"
+        echo "     Response: $RESPONSE"
     fi
 else
-    echo "   ⚠️ Invalid response: $RESPONSE"
+    test_result "Cache scenario returned valid response" "FAIL"
+    echo "     Response: $RESPONSE"
 fi
 echo ""
+fi
 
 echo ""
 echo "=== PHASE 3: INTELLIGENCE ==="
 echo ""
+if [[ "$TARGET_PHASE" == "phase3" || "$TARGET_PHASE" == "all" ]]; then
 
 # 7. Test analysis payload exists
 echo "7️⃣ [P3] Testing analysis payload fields..."
@@ -207,13 +237,14 @@ else
     echo "     Response: $RESPONSE"
 fi
 echo ""
+echo ""
 
 # 8. Test index suggestion engine shape
 echo "8️⃣ [P3] Testing index suggestions shape..."
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query":"SELECT * FROM users WHERE id = 1"}')
+  -d '{"query":"SELECT * FROM pg_database WHERE datname = '\'postgres\''"}')
 
 SUGGESTIONS_TYPE=$(echo "$RESPONSE" | jq -r 'if (.analysis.index_suggestions|type) == "array" then "array" else "other" end' 2>/dev/null)
 if [ "$SUGGESTIONS_TYPE" = "array" ]; then
@@ -247,6 +278,8 @@ fi
 echo ""
 
 echo "✨ Feature Test Complete!"
+fi
+
 echo ""
 echo "Summary:"
 echo "  [Phase 1] SQL Injection Detection: ✅"
@@ -259,6 +292,7 @@ echo "  [Phase 3] Complexity + Suggestions: If keys present"
 echo ""
 echo "=== CRITICAL FIX VERIFICATION ==="
 echo ""
+if [[ "$TARGET_PHASE" == "all" ]]; then
 
 # FIX 1: Honeypot Detection (1.5)
 echo "TEST 1️⃣ Honeypot Detection (1.5 - NEW FIX)..."
@@ -274,6 +308,7 @@ else
     test_result "Honeypot detection NOT working" "FAIL"
     echo "     Response: $HONEYPOT_ERROR"
 fi
+echo ""
 echo ""
 
 # FIX 2: Auto-LIMIT Case Sensitivity (2.4)
@@ -352,8 +387,7 @@ echo ""
 # FIX 6: API Key DB Fallback (1.1)
 echo "TEST 6️⃣ API Key DB Fallback (1.1 - FIXED)..."
 echo "     (API keys now fall back to DB on Redis cache miss)"
-# Clear Redis API key cache
-docker-compose exec redis redis-cli FLUSHDB > /dev/null 2>&1
+# Keep rate-limit data intact; avoid wiping state mid-suite.
 
 # Try query with token - should still work (uses JWT, not API key)
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
@@ -371,6 +405,7 @@ echo ""
 
 # Summary
 echo "=== TEST SUMMARY ==="
+fi
 echo "Passed: $PASS_COUNT checks"
 echo "Failed: $FAIL_COUNT checks"
 echo ""

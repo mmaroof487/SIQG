@@ -1,30 +1,39 @@
 """Database connection and session management."""
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import StaticPool
 from config import settings
 
 # Declarative base for all models
 Base = declarative_base()
 
+
+def _make_engine(url: str):
+    """Create an async engine with backend-appropriate pool settings."""
+    if url.startswith("sqlite"):
+        # SQLite doesn't support pool_size / max_overflow / pool_timeout.
+        # Use StaticPool so in-memory DBs persist across connections.
+        return create_async_engine(
+            url,
+            echo=False,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return create_async_engine(
+        url,
+        pool_size=settings.db_pool_min,
+        max_overflow=settings.db_pool_max - settings.db_pool_min,
+        pool_timeout=settings.db_pool_timeout_seconds,
+        echo=False,
+        pool_pre_ping=True,
+    )
+
+
 # Primary (write) engine
-primary_engine = create_async_engine(
-    settings.db_primary_url,
-    pool_size=settings.db_pool_min,
-    max_overflow=settings.db_pool_max - settings.db_pool_min,
-    pool_timeout=settings.db_pool_timeout_seconds,
-    echo=False,
-    pool_pre_ping=True,
-)
+primary_engine = _make_engine(settings.db_primary_url)
 
 # Replica (read) engine
-replica_engine = create_async_engine(
-    settings.db_replica_url,
-    pool_size=settings.db_pool_min,
-    max_overflow=settings.db_pool_max - settings.db_pool_min,
-    pool_timeout=settings.db_pool_timeout_seconds,
-    echo=False,
-    pool_pre_ping=True,
-)
+replica_engine = _make_engine(settings.db_replica_url)
 
 # Session makers
 PrimarySession = async_sessionmaker(

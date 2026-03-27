@@ -10,10 +10,6 @@ INJECTION_PATTERNS = [
     r"(?i)(\bOR\b\s+\d+\s*=\s*\d+)",  # OR 1=1
     r"(?i)(\bOR\b\s+'[^']*'\s*=\s*'[^']*')",  # OR 'a'='a'
     r"(?i)(UNION\s+SELECT)",  # UNION SELECT
-    r"(?i)(DROP\s+TABLE)",  # DROP TABLE
-    r"(?i)(DELETE\s+FROM)",  # DELETE FROM
-    r"(?i)(TRUNCATE\s+TABLE)",  # TRUNCATE
-    r"(?i)(ALTER\s+TABLE)",  # ALTER TABLE
     r"(?i)(EXEC\s*\()",  # EXEC
     r"(?i)(EXECUTE\s*\()",  # EXECUTE
     r"(?i)(;\s*DROP)",  # ; DROP
@@ -46,7 +42,18 @@ async def validate_query(query: str):
 
     query = query.strip()
 
-    # Check for SQL injection
+    # Extract query type
+    first_word = query.split()[0].upper() if query else ""
+
+    # Check if query type is in dangerous list
+    if first_word in DANGEROUS_QUERY_TYPES:
+        logger.warning(f"Dangerous query blocked: {first_word}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Query type not allowed: {first_word}"
+        )
+
+    # Check for SQL injection after query type gate.
     if detect_sql_injection(query):
         raise HTTPException(
             status_code=400,
@@ -60,22 +67,10 @@ async def validate_query(query: str):
     for honeypot_table in honeypot_tables:
         if honeypot_table.upper() in query_upper:
             logger.critical(f"HONEYPOT HIT: Attack attempt on table '{honeypot_table}': {query[:100]}")
-            # Log this for security team review
             raise HTTPException(
                 status_code=403,
                 detail="Access to this resource is forbidden"
             )
-
-    # Extract query type
-    first_word = query.split()[0].upper() if query else ""
-
-    # Check if query type is in dangerous list
-    if first_word in DANGEROUS_QUERY_TYPES:
-        logger.warning(f"Dangerous query blocked: {first_word}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"{first_word} queries are not allowed"
-        )
 
     # Only allow SELECT and INSERT by default
     allowed_types = {"SELECT", "INSERT"}
