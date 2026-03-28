@@ -146,8 +146,16 @@ async def analyze_query_plan(query: str) -> dict:
 def recommend_indexes(query: str, plan: dict) -> list:
     """
     Backward-compatible wrapper around generate_index_suggestions.
+    Handles full_plan as either a list (from EXPLAIN JSON) or a dict.
     """
+    full_plan = plan.get("full_plan")
+    root_plan = {}
+    if isinstance(full_plan, list) and full_plan:
+        root_plan = full_plan[0].get("Plan", {})
+    elif isinstance(full_plan, dict):
+        root_plan = full_plan
+
     mapped = {
-        "seq_scans": _extract_all_nodes(plan.get("full_plan", {})) if plan.get("full_plan") else [],
+        "seq_scans": _extract_all_nodes(root_plan) if root_plan else [],
     }
     return generate_index_suggestions(mapped, query)

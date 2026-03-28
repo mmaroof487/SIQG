@@ -12,7 +12,7 @@
 
 2. **Redis Cache** (`middleware/performance/cache.py`)
    - ✅ Stores/retrieves query results with TTL (default 60 seconds)
-   - ✅ Cache key format: `siqg:cache:{fingerprint}:{user_id}:{role}`
+   - ✅ Cache key format: `siqg:cache:{fingerprint}:{role}`
    - ✅ Table-tagged invalidation: `siqg:cache_tags:{table}`
    - ✅ Automatic purge on INSERT/UPDATE/DELETE
    - ✅ Role-aware caching (same query, different roles = separate cache keys)

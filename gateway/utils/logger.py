@@ -14,17 +14,14 @@ class JSONFormatter(logging.Formatter):
         log_dict: Dict[str, Any] = {
             "timestamp": datetime.utcnow().isoformat(),
             "level": record.levelname,
-            "logger": record.name,
+            "module": record.module,
             "message": record.getMessage(),
         }
         
-        # Add trace_id if available in record
-        if hasattr(record, "trace_id"):
-            log_dict["trace_id"] = record.trace_id
-        
-        # Add user_id if available
-        if hasattr(record, "user_id"):
-            log_dict["user_id"] = record.user_id
+        # Attach extra fields if present
+        for field in ["trace_id", "user_id", "latency_ms", "query_fingerprint"]:
+            if hasattr(record, field):
+                log_dict[field] = getattr(record, field)
         
         # Add exception info if present
         if record.exc_info:

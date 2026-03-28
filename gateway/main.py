@@ -1,11 +1,11 @@
 """FastAPI application and lifespan management."""
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as aioredis
 from config import settings
 from utils.db import init_db, close_db
-from routers.v1 import auth, query, admin
+from routers.v1 import auth, query, admin, metrics
 import logging
 
 # Configure logging
@@ -60,9 +60,27 @@ app.add_middleware(
 
 # Health check endpoint
 @app.get("/health")
-async def health_check():
-    """Basic health check."""
-    return {"status": "ok", "service": "queryx"}
+async def health_check(request: Request):
+    """Basic health check querying DB and Redis."""
+    status_data = {"status": "ok", "db": "ok", "redis": "ok"}
+    try:
+        await request.app.state.redis.ping()
+    except Exception as e:
+        logger.error(f"Redis health check failed: {e}")
+        status_data["redis"] = "unhealthy"
+        status_data["status"] = "degraded"
+        
+    try:
+        from utils.db import PrimarySession
+        from sqlalchemy import text
+        async with PrimarySession() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"DB health check failed: {e}")
+        status_data["db"] = "unhealthy"
+        status_data["status"] = "degraded"
+        
+    return status_data
 
 
 # Status endpoint
@@ -87,6 +105,7 @@ async def status(request):
 app.include_router(auth.router)
 app.include_router(query.router)
 app.include_router(admin.router)
+app.include_router(metrics.router)
 
 logger.info("✅ Routers registered")
 

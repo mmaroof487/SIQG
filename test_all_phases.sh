@@ -13,10 +13,11 @@ NC='\033[0m'
 PHASE1_STATUS=0
 PHASE2_STATUS=0
 PHASE3_STATUS=0
+PHASE4_STATUS=0
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}   SIQG Full Phase Test Runner${NC}"
-echo -e "${BLUE}   (Phase 1 -> Phase 2 -> Phase 3)${NC}"
+echo -e "${BLUE}   (Phase 1 -> Phase 2 -> Phase 3 -> Phase 4)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -75,6 +76,15 @@ else
   echo -e "${RED}❌ Phase 3 failed${NC}\n"
 fi
 
+echo -e "${YELLOW}Running Phase 4 checks...${NC}"
+if bash ./test_features.sh phase4; then
+  PHASE4_STATUS=0
+  echo -e "${GREEN}✅ Phase 4 passed${NC}\n"
+else
+  PHASE4_STATUS=1
+  echo -e "${RED}❌ Phase 4 failed${NC}\n"
+fi
+
 echo -e "${YELLOW}Final cleanup...${NC}"
 docker-compose down -v >/dev/null 2>&1 || true
 
@@ -100,7 +110,13 @@ else
   echo -e "Phase 3: ${RED}FAIL${NC}"
 fi
 
-TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS))
+if [ $PHASE4_STATUS -eq 0 ]; then
+  echo -e "Phase 4: ${GREEN}PASS${NC}"
+else
+  echo -e "Phase 4: ${RED}FAIL${NC}"
+fi
+
+TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS + PHASE4_STATUS))
 echo ""
 if [ $TOTAL_FAILS -eq 0 ]; then
   echo -e "${GREEN}✅ All phases passed${NC}"

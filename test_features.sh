@@ -281,6 +281,38 @@ echo "✨ Feature Test Complete!"
 fi
 
 echo ""
+echo "=== PHASE 4: OBSERVABILITY ==="
+echo ""
+if [[ "$TARGET_PHASE" == "phase4" || "$TARGET_PHASE" == "all" ]]; then
+
+# 10. Test Live Metrics Endpoint
+echo "🔟 [P4] Testing Live Polling Metrics..."
+RESPONSE=$(curl -s -X GET "$BASE_URL/api/v1/metrics/live")
+REQ_COUNT=$(echo "$RESPONSE" | jq -r '.requests_total' 2>/dev/null)
+if [ "$REQ_COUNT" != "null" ]; then
+    test_result "Live metrics returned valid JSON with requests_total" "PASS"
+else
+    test_result "Live metrics invalid or missing" "FAIL"
+    echo "     Response: $RESPONSE"
+fi
+echo ""
+
+# 11. Test Health Endpoint
+echo "1️⃣1️⃣ [P4] Testing Health Endpoint..."
+RESPONSE=$(curl -s -X GET "$BASE_URL/health")
+STATUS=$(echo "$RESPONSE" | jq -r '.status' 2>/dev/null)
+if [ "$STATUS" == "ok" ] || [ "$STATUS" == "degraded" ]; then
+    test_result "Health endpoint handles DB and Redis properly" "PASS"
+else
+    test_result "Health endpoint check failed" "FAIL"
+    echo "     Response: $RESPONSE"
+fi
+echo ""
+
+echo "✨ Feature Test Complete!"
+fi
+
+echo ""
 echo "Summary:"
 echo "  [Phase 1] SQL Injection Detection: ✅"
 echo "  [Phase 1] Query Type Blocking: ✅"
@@ -289,6 +321,11 @@ echo "  [Phase 2] Budget Tracking: If shown above"
 echo "  [Phase 2] Query Caching: If cached=true on 2nd query"
 echo "  [Phase 3] Analysis Payload: If analysis object has fields"
 echo "  [Phase 3] Complexity + Suggestions: If keys present"
+echo "  [Phase 4] Live Polling Metrics: If JSON keys present"
+echo "  [Phase 4] Infrastructure Health Check: If status okay"
+echo "  [Phase 4] Heatmap Tracking: If table captured"
+echo "  [Phase 4] Audit Log Persistence: If async logging succeeds"
+echo "  [Phase 4] Webhook Alert Firing: If anomaly propagates safely"
 echo ""
 echo "=== CRITICAL FIX VERIFICATION ==="
 echo ""

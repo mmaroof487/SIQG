@@ -20,7 +20,7 @@ sequenceDiagram
 
     Note over G: Performance Layer
     G->>G: Fingerprint + SHA256 hash
-    G->>R: GET siqg:cache:{fingerprint}:{user_id}:{role}
+    G->>R: GET siqg:cache:{fingerprint}:{role}
     R-->>G: nil (cache miss)
     G->>G: Auto-inject LIMIT 1000
     G->>PG: EXPLAIN (FORMAT JSON) SELECT...
@@ -39,7 +39,7 @@ sequenceDiagram
     G->>G: Decrypt + mask by role
 
     Note over G: Observability Layer
-    G->>R: SETEX siqg:cache:{fingerprint}:{user_id}:{role} 60 {rows}
+    G->>R: SETEX siqg:cache:{fingerprint}:{role} 60 {rows}
     G->>R: SADD siqg:cache_tags:{table} {cache_key}
     R-->>G: ok
     G->>G: INSERT INTO audit_logs (async)

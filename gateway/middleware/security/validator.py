@@ -69,7 +69,7 @@ async def validate_query(query: str):
             logger.critical(f"HONEYPOT HIT: Attack attempt on table '{honeypot_table}': {query[:100]}")
             raise HTTPException(
                 status_code=403,
-                detail="Access to this resource is forbidden"
+                detail="Access to this resource is forbidden (honeypot)"
             )
 
     # Only allow SELECT and INSERT by default

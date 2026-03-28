@@ -1,4 +1,4 @@
-# SIQG Testing Guide (Phases 1-3)
+# SIQG Testing Guide (Phases 1-4)
 
 ## Quick Start
 The fastest way to verify the entire system (Security, Performance, and Intelligence layers) is to use the integrated test orchestration script:
@@ -37,6 +37,15 @@ This script will automatically rebuild the gateway, provision the primary and re
 ✅ Circuit Breaker State Management (Open/Half-Open/Closed)
 ✅ Column Encryption (AES-256-GCM) & RBAC Masking
 ✅ Slow query detection + persistence
+
+### Phase 4: Observability Layer
+✅ Structured JSON tracing with `trace_id` assignment
+✅ Fire-and-forget background audit log insertion
+✅ Redis cumulative analytic counters (Rate limits, requests, cached)
+✅ Real-time pipeline calculation of live P50, P95, and P99 queries via sliding Lists
+✅ Asynchronous HTTPX unified webhooks alerting system (Slow queries, Security honeypot hits, Anomalies)
+✅ Heatmaps for monitoring dynamic table densities
+✅ Dynamic degradation health statuses supporting Redis/Database PING routines
 
 ---
 
@@ -132,7 +141,52 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 
 ---
 
-## Load Testing (Phase 1 + 2 + 3)
+## Phase 4 Manual Tests
+
+### Test 1: Live Polling Metrics
+Observe continuous unauthenticated telemetry metrics (e.g., performance counters, p50/p95/p99) generated across recent traffic behavior.
+
+```bash
+curl -X GET http://localhost:8000/api/v1/metrics/live
+# Expected: JSON containing keys like `request_count`, `latency_p50`, `latency_p99`, `cache_hit_ratio`
+```
+
+### Test 2: Heatmap Visualizations
+Execute a few structural queries that read from specific SQL schemas, then analyze the heatmap output.
+
+```bash
+# Step 1: Query an arbitrary table to build an index event
+curl -X POST http://localhost:8000/api/v1/query/execute \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"query":"SELECT * FROM public_data LIMIT 1"}'
+
+# Step 2: Retrieve the heatmap (Admin Required)
+curl -X GET http://localhost:8000/api/v1/admin/heatmap \
+  -H "Authorization: Bearer $TOKEN" 
+# Expected: JSON Array matching `[{"table": "public_data", "score": 1}]`
+```
+
+### Test 3: Exporting the Streaming Audit Log
+Test whether the pagination/CSV streams efficiently generate an isolated `.csv` download stream carrying structural audit queries.
+
+```bash
+curl -X GET http://localhost:8000/api/v1/admin/audit/export \
+  -H "Authorization: Bearer $TOKEN" \
+  --output audit_logs.csv
+# Expected: a validly formatted `audit_logs.csv` downloaded containing trailing audit states
+```
+
+### Test 4: Dynamic Integrated Health Check
+Ensure `gateway` can appropriately identify internal service isolation breakdowns by validating connection states toward databases AND caching layers.
+
+```bash
+curl -X GET http://localhost:8000/health
+# Expected: 200 OK — {"status": "ok", "db": "ok", "redis": "ok"}
+```
+
+---
+
+## Load Testing (Phase 1-4)
 If you want to view the behavior of rate-limiting, circuit breakers, and connection pooling under extreme pressure:
 
 ```bash

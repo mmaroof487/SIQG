@@ -344,19 +344,22 @@
 - ✅ test_fingerprint_consistency — Same normalized query = same hash
 - ✅ test_extract_tables — Extracts FROM/JOIN tables
 
-**tests/integration/test_full_pipeline.py** (120 lines)
+**tests/integration/test_full_pipeline.py** (75 lines)
 
-- ✅ test_login_success — JWT token returned
-- ✅ test_login_wrong_password — 401 on wrong password
-- ✅ test_query_without_auth — 403 without credentials
-- ✅ test_query_select_allowed — SELECT executes (200)
-- ✅ test_query_drop_blocked — DROP rejected (400)
-- ✅ test_query_injection_blocked — Injection rejected (400)
-- ✅ test_health_check — /health responds (200)
+- ✅ test_health_endpoint — /health responds (200)
+- ✅ test_status_endpoint — /api/v1/status responds (200)
+- ✅ test_query_without_auth — 401/403 without credentials
+- ✅ test_drop_table_blocked — DROP rejected (400/401)
+- ✅ test_sql_injection_blocked — Injection rejected (400/401)
+- ✅ test_metrics_endpoint_unauthenticated — Metrics accessible without auth
+- ✅ test_admin_endpoints_require_auth — Admin endpoints reject unauthenticated requests
 
-**tests/conftest.py** (5 lines)
+**tests/conftest.py** (56 lines)
 
 - ✅ Python path setup for imports
+- ✅ Test database fixture (SQLite in-memory)
+- ✅ FastAPI TestClient fixture
+- ✅ Event loop fixture for async tests
 
 ---
 

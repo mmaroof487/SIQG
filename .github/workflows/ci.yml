@@ -62,3 +62,11 @@ jobs:
         uses: codecov/codecov-action@v3
         with:
           files: ./gateway/coverage.xml
+
+  integration_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Full Integration Suite (Phases 1-4)
+        run: bash test_all_phases.sh

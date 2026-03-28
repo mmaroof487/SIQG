@@ -41,6 +41,7 @@ erDiagram
         bool slow
         bool anomaly_flag
         text error_message
+        json execution_plan
         datetime created_at
     }
 
@@ -49,22 +50,26 @@ erDiagram
         string trace_id
         uuid user_id FK
         string query_fingerprint
-        float execution_time_ms
+        float latency_ms
         string scan_type
-        float cost
-        text suggestions
+        int rows_scanned
+        int rows_returned
+        text recommended_index
+        json execution_plan
         datetime created_at
     }
 
     SLA_SNAPSHOTS {
         uuid id PK
-        float p50_ms
-        float p95_ms
-        float p99_ms
-        int request_count
-        int error_count
+        datetime hour
+        float uptime_percent
+        float p50_latency_ms
+        float p95_latency_ms
+        float p99_latency_ms
+        int total_requests
+        int failed_requests
         float cache_hit_ratio
-        datetime snapshot_at
+        datetime created_at
     }
 
     USERS ||--o{ API_KEYS : "has"

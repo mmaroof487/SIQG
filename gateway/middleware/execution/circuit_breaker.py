@@ -1,8 +1,7 @@
 """Circuit breaker pattern for DB resilience."""
 import asyncio
-import json
+import asyncio
 import time
-import urllib.request
 from fastapi import HTTPException, Request
 from config import settings
 from utils.logger import get_logger
@@ -93,16 +92,16 @@ async def record_failure(request: Request):
         await redis.setex("circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
         await redis.delete("circuit_breaker:half_open_probe")
         if settings.webhook_url:
+            from middleware.observability.webhooks import send_alert
+            trace_id = getattr(request.state, "trace_id", "Unknown")
+            user_id = str(getattr(request.state, "user_id", "Unknown"))
             asyncio.create_task(
-                _send_circuit_open_webhook(
-                    settings.webhook_url,
-                    {
-                        "event": "circuit_breaker_open",
-                        "failure_count": 1,
-                        "threshold": int(settings.circuit_failure_threshold),
-                        "opened_at": time.time(),
-                        "reason": "half_open_probe_failed",
-                    },
+                send_alert(
+                    "circuit_open", 
+                    trace_id, 
+                    user_id, 
+                    "Circuit breaker HALF_OPEN -> OPEN due to failed probe",
+                    extra={"failure_count": 1, "reason": "half_open_probe_failed"}
                 )
             )
         logger.error("Circuit breaker HALF_OPEN -> OPEN due to failed probe")
@@ -121,34 +120,18 @@ async def record_failure(request: Request):
         await redis.setex("circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
         await redis.delete("circuit_breaker:half_open_probe")
         if settings.webhook_url:
+            from middleware.observability.webhooks import send_alert
+            trace_id = getattr(request.state, "trace_id", "Unknown")
+            user_id = str(getattr(request.state, "user_id", "Unknown"))
             asyncio.create_task(
-                _send_circuit_open_webhook(
-                    settings.webhook_url,
-                    {
-                        "event": "circuit_breaker_open",
-                        "failure_count": int(count),
-                        "threshold": int(settings.circuit_failure_threshold),
-                        "opened_at": time.time(),
-                    },
+                send_alert(
+                    "circuit_open", 
+                    trace_id, 
+                    user_id, 
+                    f"Circuit breaker OPEN: {count} >= {settings.circuit_failure_threshold} failures",
+                    extra={"failure_count": count, "threshold": settings.circuit_failure_threshold}
                 )
             )
 
 
-async def _send_circuit_open_webhook(url: str, payload: dict):
-    """Best-effort webhook alert when circuit opens."""
-    try:
-        body = json.dumps(payload).encode("utf-8")
 
-        def _post():
-            req = urllib.request.Request(
-                url=url,
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=3):
-                pass
-
-        await asyncio.to_thread(_post)
-    except Exception as e:
-        logger.warning(f"Circuit breaker webhook failed: {e}")

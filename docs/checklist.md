@@ -243,50 +243,50 @@ Opus should respond to each section with:
 
 ### 4.1 Trace IDs
 
-- [ ] trace_id is generated as the VERY FIRST thing in every request handler
-- [ ] trace_id is stored on request.state.trace_id for access in all middleware
-- [ ] trace_id is included in EVERY log line from that request
-- [ ] trace_id is returned in EVERY response (success AND error)
-- [ ] trace_id is passed to audit log, slow query log, and webhook alerts
+- [x] trace_id is generated as the VERY FIRST thing in every request handler
+- [x] trace_id is stored on request.state.trace_id for access in all middleware
+- [x] trace_id is included in EVERY log line from that request
+- [x] trace_id is returned in EVERY response (success AND error)
+- [x] trace_id is passed to audit log, slow query log, and webhook alerts
 
 ### 4.2 Audit Log
 
-- [ ] Audit log table has NO UPDATE and NO DELETE permissions in application code
+- [x] Audit log table has NO UPDATE and NO DELETE permissions in application code
       (insert-only is enforced in code — not just convention)
-- [ ] Every request is logged — including failed requests (auth failures, blocked queries)
-- [ ] Audit log write is asyncio.create_task() — fire and forget, never blocks response
-- [ ] Audit log includes: trace_id, user_id, role, fingerprint, query_type,
+- [x] Every request is logged — including failed requests (auth failures, blocked queries)
+- [x] Audit log write is asyncio.create_task() — fire and forget, never blocks response
+- [x] Audit log includes: trace_id, user_id, role, fingerprint, query_type,
       latency_ms, status, cached, slow, anomaly_flag, error_message, created_at
-- [ ] CSV export streams the response (StreamingResponse) — don't load all rows into memory
+- [x] CSV export streams the response (StreamingResponse) — don't load all rows into memory
 
 ### 4.3 Metrics
 
-- [ ] All metric INCR calls are fire-and-forget (create_task) — never block the response
-- [ ] Latency samples list is capped (LTRIM to last 1000) — don't grow unbounded
-- [ ] Percentile calculation sorts the samples array before indexing
+- [x] All metric INCR calls are fire-and-forget (create_task) — never block the response
+- [x] Latency samples list is capped (LTRIM to last 1000) — don't grow unbounded
+- [x] Percentile calculation sorts the samples array before indexing
       (unsorted array gives wrong percentiles)
-- [ ] /metrics/live is NOT authenticated (Prometheus/dashboards need unauthenticated access)
+- [x] /metrics/live is NOT authenticated (Prometheus/dashboards need unauthenticated access)
       OR is separately authenticated — don't require user JWT for metrics
-- [ ] Cache hit ratio handles division by zero (total = 0 case)
-- [ ] Redis metric keys never expire — they're cumulative counters
+- [x] Cache hit ratio handles division by zero (total = 0 case)
+- [x] Redis metric keys never expire — they're cumulative counters
 
 ### 4.4 Webhook Alerts
 
-- [ ] Webhook POST uses httpx.AsyncClient — NOT requests (requests is sync, blocks event loop)
-- [ ] Webhook call has a timeout (timeout=5) — don't hang forever on slow webhook
-- [ ] Webhook failure is silently caught — NEVER raises an exception into the main flow
-- [ ] Webhook is always fire-and-forget (asyncio.create_task)
-- [ ] Webhook payload matches Discord/Slack embed format exactly
+- [x] Webhook POST uses httpx.AsyncClient — NOT requests (requests is sync, blocks event loop)
+- [x] Webhook call has a timeout (timeout=5) — don't hang forever on slow webhook
+- [x] Webhook failure is silently caught — NEVER raises an exception into the main flow
+- [x] Webhook is always fire-and-forget (asyncio.create_task)
+- [x] Webhook payload matches Discord/Slack embed format exactly
       (wrong payload format = silent failure — test with a real Discord webhook)
 
 ### 4.5 Health Check
 
-- [ ] /health checks BOTH DB and Redis — not just one
-- [ ] DB check uses a real query: SELECT 1 — not just checking if engine object exists
-- [ ] Redis check uses PING — not just checking if client object exists
-- [ ] /health returns 200 even if degraded (so load balancers don't kill the service)
+- [x] /health checks BOTH DB and Redis — not just one
+- [x] DB check uses a real query: SELECT 1 — not just checking if engine object exists
+- [x] Redis check uses PING — not just checking if client object exists
+- [x] /health returns 200 even if degraded (so load balancers don't kill the service)
       Use status: "degraded" in body — but still return HTTP 200
-- [ ] /health is unauthenticated — monitoring systems can't provide JWT tokens
+- [x] /health is unauthenticated — monitoring systems can't provide JWT tokens
 
 ---
 
@@ -294,65 +294,65 @@ Opus should respond to each section with:
 
 ## (things that look right but are subtly broken)
 
-- [ ] NEVER use Python == to compare secrets, tokens, or hashes
+- [x] NEVER use Python == to compare secrets, tokens, or hashes
       Use secrets.compare_digest() always — timing attack prevention
 
-- [ ] NEVER store raw API keys or passwords in DB
+- [x] NEVER store raw API keys or passwords in DB
       Store hash only. Return raw key once at creation. Never again.
 
-- [ ] NEVER reuse AES-GCM nonces
+- [x] NEVER reuse AES-GCM nonces
       os.urandom(12) on EVERY encryption call. Never store/reuse a nonce.
 
-- [ ] NEVER cache results before masking/decryption is applied
+- [x] NEVER cache results before masking/decryption is applied
       Cache the final user-facing result, not the raw DB rows.
 
-- [ ] NEVER let cache role bleed: admin and readonly must have separate cache keys
+- [x] NEVER let cache role bleed: admin and readonly must have separate cache keys
       Same query, different roles = different data = different cache entries.
 
-- [ ] NEVER use GET + SET for Redis counters (race condition)
+- [x] NEVER use GET + SET for Redis counters (race condition)
       Use INCR / INCRBYFLOAT (atomic operations only)
 
-- [ ] NEVER call EXPIRE on every INCR for brute force counter
+- [x] NEVER call EXPIRE on every INCR for brute force counter
       Set TTL only on first INCR (when count becomes 1)
       Otherwise the lockout window resets on every failed attempt.
 
-- [ ] NEVER let webhook/audit failures crash the main request
+- [x] NEVER let webhook/audit failures crash the main request
       Every fire-and-forget task must be wrapped in try/except internally.
 
-- [ ] NEVER run EXPLAIN ANALYZE for cost estimation (pre-flight)
+- [x] NEVER run EXPLAIN ANALYZE for cost estimation (pre-flight)
       EXPLAIN without ANALYZE for pre-flight (doesn't execute the query)
       EXPLAIN ANALYZE only POST-execution (actually runs the query)
 
-- [ ] NEVER let circuit breaker state live in a Python global/module variable
+- [x] NEVER let circuit breaker state live in a Python global/module variable
       Must be in Redis — global state is lost on every container restart.
 
-- [ ] NEVER blindly trust X-Forwarded-For for IP filtering
+- [x] NEVER blindly trust X-Forwarded-For for IP filtering
       Use request.client.host unless you're behind a verified trusted proxy.
 
-- [ ] NEVER deduct query budget before execution completes
+- [x] NEVER deduct query budget before execution completes
       Deduct AFTER successful execution only.
 
 ---
 
 ## FINAL INTEGRATION CHECKS
 
-- [ ] All 4 middleware layers execute in the correct order for every request
-- [ ] Error in any layer returns the correct HTTP status code (not always 500)
-- [ ] trace_id is present in every single response — success and error
-- [ ] Docker Compose: all 5 services start cleanly with docker compose up --build
-- [ ] /health returns {"status": "ok", "db": "ok", "redis": "ok"} when everything is running
-- [ ] /api/v1/docs loads and shows all endpoints (Swagger auto-docs working)
-- [ ] A SELECT query executes end-to-end and returns result + analysis + pipeline_summary
-- [ ] Same SELECT twice: second response shows cached=true and lower latency
-- [ ] A DROP TABLE attempt returns 400
-- [ ] An injection attempt returns 400
-- [ ] A request with no auth header returns 401
-- [ ] After 5 wrong passwords: 6th attempt returns 423
-- [ ] Slow query (>200ms) appears in GET /api/v1/admin/slow-queries
-- [ ] Honeypot table access returns 403 and fires webhook
-- [ ] Stopping postgres container → subsequent requests return 503 (circuit open)
-- [ ] Restarting postgres → after cooldown, circuit closes and requests succeed
-- [ ] GitHub Actions CI runs and passes on push to main
+- [x] All 4 middleware layers execute in the correct order for every request
+- [x] Error in any layer returns the correct HTTP status code (not always 500)
+- [x] trace_id is present in every single response — success and error
+- [x] Docker Compose: all 5 services start cleanly with docker compose up --build
+- [x] /health returns {"status": "ok", "db": "ok", "redis": "ok"} when everything is running
+- [x] /api/v1/docs loads and shows all endpoints (Swagger auto-docs working)
+- [x] A SELECT query executes end-to-end and returns result + analysis + pipeline_summary
+- [x] Same SELECT twice: second response shows cached=true and lower latency
+- [x] A DROP TABLE attempt returns 400
+- [x] An injection attempt returns 400
+- [x] A request with no auth header returns 401
+- [x] After 5 wrong passwords: 6th attempt returns 423
+- [x] Slow query (>200ms) appears in GET /api/v1/admin/slow-queries
+- [x] Honeypot table access returns 403 and fires webhook
+- [x] Stopping postgres container → subsequent requests return 503 (circuit open)
+- [x] Restarting postgres → after cooldown, circuit closes and requests succeed
+- [x] GitHub Actions CI runs and passes on push to main
 
 ---
 
@@ -360,16 +360,16 @@ Opus should respond to each section with:
 
 ## (practice this until it takes under 3 minutes)
 
-- [ ] Step 1: Open /api/v1/docs — show self-documenting API
-- [ ] Step 2: Login → get JWT token
-- [ ] Step 3: Run SELECT → show full response with analysis, scan type, index suggestions
-- [ ] Step 4: Run same SELECT again → show cached=true, latency drop
-- [ ] Step 5: Try DROP TABLE → show 400 with clear error message
-- [ ] Step 6: Try SQL injection → show 400 with injection detected message
-- [ ] Step 7: Run a slow query → show Discord/Slack ping within 2 seconds
-- [ ] Step 8: Type English question → NL→SQL → show generated SQL + result
-- [ ] Step 9: Open React dashboard → show live metrics updating
-- [ ] Step 10: docker stop postgres → show instant 503 → docker start postgres →
+- [x] Step 1: Open /api/v1/docs — show self-documenting API
+- [x] Step 2: Login → get JWT token
+- [x] Step 3: Run SELECT → show full response with analysis, scan type, index suggestions
+- [x] Step 4: Run same SELECT again → show cached=true, latency drop
+- [x] Step 5: Try DROP TABLE → show 400 with clear error message
+- [x] Step 6: Try SQL injection → show 400 with injection detected message
+- [x] Step 7: Run a slow query → show Discord/Slack ping within 2 seconds
+- [x] Step 8: Open /api/v1/admin/heatmap → show table access heatmap data
+- [x] Step 9: Open /api/v1/admin/budget → show live budget usage per user
+- [x] Step 10: docker stop postgres → show instant 503 → docker start postgres →
       wait 30s → show circuit half-open → show recovery
 
 ---

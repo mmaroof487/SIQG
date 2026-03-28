@@ -43,7 +43,8 @@ async def test_db():
 @pytest.fixture
 def client():
     """FastAPI test client."""
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 @pytest.fixture

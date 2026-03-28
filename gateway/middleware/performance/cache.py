@@ -11,16 +11,15 @@ logger = get_logger(__name__)
 async def check_cache(
     request: Request,
     query: str,
-    user_id: str,
     role: str,
 ) -> Optional[Any]:
     """
     Check if query result is in cache.
-    Cache key includes: query_fingerprint + user_id + role
+    Cache key includes: query_fingerprint + role
     """
     redis = request.app.state.redis
     fingerprint = fingerprint_query(query)
-    cache_key = f"siqg:cache:{fingerprint}:{user_id}:{role}"
+    cache_key = f"siqg:cache:{fingerprint}:{role}"
 
     try:
         cached_result = await redis.get(cache_key)
@@ -38,7 +37,6 @@ async def check_cache(
 async def write_cache(
     request: Request,
     query: str,
-    user_id: str,
     role: str,
     result: Any,
     ttl: int = None,
@@ -56,8 +54,8 @@ async def write_cache(
     # Extract affected tables
     tables = extract_tables_from_query(query)
 
-    # Cache key: siqg:cache:{fingerprint}:{user_id}:{role}
-    cache_key = f"siqg:cache:{fingerprint}:{user_id}:{role}"
+    # Cache key: siqg:cache:{fingerprint}:{role}
+    cache_key = f"siqg:cache:{fingerprint}:{role}"
 
     try:
         # Store result
@@ -98,8 +96,8 @@ async def invalidate_table_cache(
             deleted_count = 0
 
             while True:
-                # SCAN the tag key set with COUNT hint for batching
-                cursor, cache_keys = await redis.scan(cursor, match=f"siqg:cache:*", count=100)
+                # SSCAN the tag key set with COUNT hint for batching
+                cursor, cache_keys = await redis.sscan(tag_key, cursor, count=100)
 
                 if cache_keys:
                     # Delete all cache keys in one pipeline for efficiency

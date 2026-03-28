@@ -24,3 +24,15 @@ Every time a query runs, the system secretly runs a background check to measure 
 
 **8. Smart "Speed-Up" Recommendations**
 If the system notices the database had to slowly search through an entire table to find your data, it will automatically act as a database consultant. It will attach a message to your query results saying: *"Hey, you scanned the whole table looking for this user. If you run this specific 'CREATE INDEX' command, it will be 100x faster next time."*
+
+**9. Instant "Air Traffic Control" (Live Dashboards)**
+Now, instead of guessing if the system is struggling, there is an active broadcast telling us exactly how many queries are hitting the server per second, and exactly how many milliseconds the average (P50) and worst-case (P99) users are waiting—all tracked securely without slowing down real users.
+
+**10. Security Alarm System (Webhooks)**
+If someone tries to query a forbidden "Honeypot" table, or if the system suddenly gets bombarded with 1,000 queries a second acting like a cyber-attack, the server instantly sends a background alert directly to an external chat or alert system (like Discord or Slack), pinging the administrator before the damage gets out of hand.
+
+**11. The Unbreakable "Black Box" (Audit Trails)**
+Every single query, connection, error, and success is stamped with a unique `trace_id` and permanently filed away in a secure audit log table. If a malicious insider tries to delete or alter data, the system asynchronously records exactly who did it, what they typed, and when it happened—impossible to bypass or erase.
+
+**12. "Hot Spot" Maps (Heatmaps)**
+The system now generates a live visual of which database tables are the most popular (a "heatmap"). Just like looking at traffic on Google Maps, admins can see exactly which parts of the database are being hit the hardest and optimize them accordingly.

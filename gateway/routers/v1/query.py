@@ -25,8 +25,12 @@ from middleware.performance.cost_estimator import estimate_query_cost
 from middleware.performance.auto_limit import inject_limit_clause
 from middleware.performance.budget import check_budget, deduct_budget
 from middleware.performance.complexity import score_complexity
+from middleware.observability.metrics import increment, record_latency
+from middleware.observability.heatmap import record_table_access
+from middleware.observability.webhooks import send_alert
 from middleware.execution.analyzer import run_explain_analyze, generate_index_suggestions, log_slow_query
 from middleware.execution.executor import execute_with_timeout
+from middleware.observability.audit import write_audit_log
 from models import AuditLog
 from utils.db import PrimarySession
 from utils.logger import get_logger
@@ -84,6 +88,9 @@ async def execute_query(
     logger.info(f"[{trace_id}] Query: {payload.query[:100]}")
     clean_query = payload.query
 
+    # Record total requests
+    await increment(request, "requests_total")
+
     try:
         # === LAYER 1: SECURITY ===
         # Check IP filter first (before auth)
@@ -117,7 +124,6 @@ async def execute_query(
             cached_data = await check_cache(
                 request,
                 clean_query,
-                str(request.state.user_id),
                 request.state.role,
             )
             if cached_data is not None:
@@ -153,6 +159,10 @@ async def execute_query(
                         "complexity": score_complexity(clean_query),
                     },
                 )
+
+        # Record cache miss if it is a SELECT query
+        if is_select:
+            await increment(request, "cache_misses")
 
         # **Cost Estimation** - EXPLAIN before execution
         cost, cost_warning = await estimate_query_cost(
@@ -216,9 +226,11 @@ async def execute_query(
         logger.debug(f"[{trace_id}] ✅ Query executed in {latency_ms:.1f}ms")
 
         # **Cache Invalidation** - For INSERT/UPDATE/DELETE, invalidate affected tables
+        # Fire-and-forget: don't block the response waiting for cache cleanup
         if not is_select and affected_tables:
-            await invalidate_table_cache(request, affected_tables)
-            logger.debug(f"[{trace_id}] ✅ Invalidated cache for tables: {affected_tables}")
+            import asyncio
+            asyncio.create_task(invalidate_table_cache(request, affected_tables))
+            logger.debug(f"[{trace_id}] ✅ Cache invalidation scheduled for tables: {affected_tables}")
 
         # **RBAC Result Masking** - Apply PII masking to results based on role
         if is_select and rows_dict:
@@ -252,6 +264,14 @@ async def execute_query(
         is_slow = analyzed_time > settings.slow_query_threshold_ms
 
         if is_select and is_slow:
+            await increment(request, "slow_queries")
+            await send_alert(
+                event_type="slow_query",
+                trace_id=trace_id,
+                user_id=str(request.state.user_id),
+                message=f"Query exceeded slow threshold. Latency: {analyzed_time}ms",
+                extra={"query": clean_query[:200]}
+            )
             async with PrimarySession() as session:
                 await log_slow_query(
                     session,
@@ -261,22 +281,28 @@ async def execute_query(
                     analysis=explain_result,
                 )
 
-        # Log to audit log
-        async with PrimarySession() as session:
-            audit = AuditLog(
+        if getattr(request.state, "anomaly_flag", False):
+            await send_alert(
+                event_type="anomaly",
                 trace_id=trace_id,
-                user_id=request.state.user_id,
-                role=request.state.role,
-                query_type=query_type,
-                query_fingerprint=fingerprint,
-                latency_ms=latency_ms,
-                status="success",
-                cached=cached_result,
-                slow=is_slow,
-                anomaly_flag=getattr(request.state, "anomaly_flag", False),
+                user_id=str(request.state.user_id),
+                message="Anomaly flag triggered for request spike",
+                extra={"query": clean_query[:50]}
             )
-            session.add(audit)
-            await session.commit()
+
+        # Log to audit log
+        await write_audit_log(
+            trace_id=trace_id,
+            user_id=request.state.user_id,
+            role=request.state.role,
+            fingerprint=fingerprint,
+            query_type=query_type,
+            latency_ms=latency_ms,
+            status="success",
+            cached=cached_result,
+            slow=is_slow,
+            anomaly_flag=getattr(request.state, "anomaly_flag", False),
+        )
 
         # Cache store - Store results in cache for future queries (with table tags)
         if is_select and not is_slow:
@@ -289,7 +315,6 @@ async def execute_query(
             await write_cache(
                 request,
                 clean_query,
-                str(request.state.user_id),
                 request.state.role,
                 cache_data,
                 ttl=settings.cache_default_ttl,
@@ -321,11 +346,43 @@ async def execute_query(
             } if is_select else None,
         )
 
-    except HTTPException:
+    except HTTPException as e:
+        if getattr(e, "status_code", 500) == 429:
+            await increment(request, "rate_limit_hits")
+            await send_alert(
+                event_type="rate_limit",
+                trace_id=trace_id,
+                user_id=str(getattr(request.state, "user_id", "Unknown")),
+                message="Rate limit exceeded",
+            )
+        elif getattr(e, "status_code", 500) == 403 and "honeypot" in str(getattr(e, "detail", "")).lower():
+            await send_alert(
+                event_type="honeypot_hit",
+                trace_id=trace_id,
+                user_id=str(getattr(request.state, "user_id", "Unknown")),
+                message="Honeypot table accessed",
+                extra={"query": clean_query[:200]}
+            )
+            await increment(request, "errors")
+        else:
+            await increment(request, "errors")
         raise
     except Exception as e:
+        await increment(request, "errors")
         logger.error(f"[{trace_id}] ❌ Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Final latency and metrics
+        latency_ms = (time.time() - request_start_time) * 1000
+        await record_latency(request, latency_ms)
+        
+        # Heatmap updates inside finally to capture all tables extracted
+        try:
+            if 'affected_tables' in locals() and affected_tables:
+                for table in affected_tables:
+                    await record_table_access(request, table)
+        except Exception as heatmap_e:
+            logger.warning(f"[{trace_id}] Heatmap recording failed: {heatmap_e}")
 
 
 @router.get("/budget")

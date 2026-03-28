@@ -1,52 +1,47 @@
-"""Metrics collection and exposure."""
 from fastapi import Request
-from utils.logger import get_logger
+import time
 
-logger = get_logger(__name__)
-
-
-async def record_query_metric(
-    request: Request,
-    query_type: str,
-    latency_ms: float,
-    cached: bool = False,
-    slow: bool = False,
-    status: str = "success",
-):
-    """
-    Record query metrics in Redis counters.
-    Exposed via `/api/v1/metrics/live` for React dashboard.
-    """
+async def increment(request: Request, key: str, amount: float = 1):
     redis = request.app.state.redis
+    await redis.incrbyfloat(f"siqg:metrics:{key}", amount)
 
-    # Counters for this minute
-    now_bucket = int(request.state.start_time // 60)
-    metrics_key = f"metrics:{now_bucket}"
+async def record_latency(request: Request, latency_ms: float):
+    redis = request.app.state.redis
+    # Keep last 1000 latency values for percentile calculation
+    pipe = redis.pipeline()
+    pipe.lpush("siqg:metrics:latency_samples", latency_ms)
+    pipe.ltrim("siqg:metrics:latency_samples", 0, 999)
+    await pipe.execute()
 
-    try:
-        # Increment counters
-        await redis.hincrby(metrics_key, "total_requests", 1)
-        await redis.hincrby(metrics_key, f"request_type:{query_type}", 1)
+async def get_live_metrics(redis) -> dict:
+    keys = [
+        "siqg:metrics:requests_total",
+        "siqg:metrics:cache_hits",
+        "siqg:metrics:cache_misses",
+        "siqg:metrics:rate_limit_hits",
+        "siqg:metrics:slow_queries",
+        "siqg:metrics:errors",
+    ]
+    values = await redis.mget(*keys)
+    metrics = {k.split(":")[-1]: float(v or 0) for k, v in zip(keys, values)}
 
-        if cached:
-            await redis.hincrby(metrics_key, "cached_requests", 1)
+    # Latency percentiles
+    samples = await redis.lrange("siqg:metrics:latency_samples", 0, -1)
+    if samples:
+        sorted_samples = sorted(float(s) for s in samples)
+        n = len(sorted_samples)
+        metrics["latency_p50"] = sorted_samples[int(n * 0.5)]
+        metrics["latency_p95"] = sorted_samples[int(n * 0.95)]
+        metrics["latency_p99"] = sorted_samples[int(n * 0.99)]
+    else:
+        metrics["latency_p50"] = 0
+        metrics["latency_p95"] = 0
+        metrics["latency_p99"] = 0
 
-        if slow:
-            await redis.hincrby(metrics_key, "slow_requests", 1)
+    # Cache hit ratio
+    hits = metrics.get("cache_hits", 0)
+    misses = metrics.get("cache_misses", 0)
+    total = hits + misses
+    metrics["cache_hit_ratio"] = round(hits / total * 100, 1) if total > 0 else 0
 
-        if status == "success":
-            await redis.hincrby(metrics_key, "successful_requests", 1)
-        else:
-            await redis.hincrby(metrics_key, "failed_requests", 1)
-
-        # Store latency for percentile calculation (sorted set)
-        latency_key = f"latencies:{now_bucket}"
-        await redis.zadd(latency_key, {f"{latency_ms}": request.state.trace_id})
-
-        # Set TTL (keep metrics for 1 hour)
-        await redis.expire(metrics_key, 3600)
-        await redis.expire(latency_key, 3600)
-
-        logger.info(f"Metrics recorded: {query_type} {latency_ms:.1f}ms cached={cached}")
-    except Exception as e:
-        logger.warning(f"Metrics recording error: {e}")
+    return metrics
