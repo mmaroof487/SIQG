@@ -69,5 +69,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Create .env from example
+        run: cp .env.example .env
+
       - name: Run Full Integration Suite (Phases 1-4)
         run: bash test_all_phases.sh
