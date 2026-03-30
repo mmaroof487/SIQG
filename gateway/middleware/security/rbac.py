@@ -2,6 +2,7 @@
 from fastapi import HTTPException, Request
 from config import settings
 from utils.logger import get_logger
+import re
 
 logger = get_logger(__name__)
 
@@ -72,6 +73,26 @@ def mask_pii_value(column_name: str, value: str) -> str:
     return value
 
 
+def blind_dlp_masking(value: str) -> str:
+    """
+    Apply blind regex Data Loss Prevention (DLP) mask over any string, 
+    preventing PII bypass via SQL column aliasing.
+    """
+    if not value or not isinstance(value, str):
+        return value
+
+    # Mask SSN: 123-45-6789 -> ***-**-****
+    value = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '***-**-****', value)
+    
+    # Mask Email (basic): user@example.com -> ***@***.***
+    value = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b', '***@***.***', value)
+    
+    # Mask Credit Cards (13-16 digits with optional spaces/dashes)
+    value = re.sub(r'\b(?:\d[ -]*?){13,16}\b', '****-****-****-****', value)
+    
+    return value
+
+
 def apply_rbac_masking(role: str, rows: list) -> list:
     """
     Apply PII masking to result rows based on user role.
@@ -92,9 +113,11 @@ def apply_rbac_masking(role: str, rows: list) -> list:
         masked_row = {}
         for column_name, value in row.items():
             if needs_column_masking(column_name, role):
+                # Strict known column masking
                 masked_row[column_name] = mask_pii_value(column_name, value)
             else:
-                masked_row[column_name] = value
+                # Catch-all alias bypass protection (blind DLP)
+                masked_row[column_name] = blind_dlp_masking(value) if isinstance(value, str) else value
         masked_rows.append(masked_row)
 
     logger.debug(f"Applied PII masking for role '{role}'")

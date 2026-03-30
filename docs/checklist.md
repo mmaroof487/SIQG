@@ -52,7 +52,7 @@ Opus should respond to each section with:
 - [x] IP blocklist is a Redis SET (SISMEMBER = O(1)), not a DB query on every request
 - [x] Allowlist logic: if allowlist is empty, everyone is allowed (don't accidentally block all)
 - [x] IP check is the FIRST thing after trace ID generation — before auth, before anything else
-- [ ] Admin can add/remove IPs via API without restarting the server (hot config)
+- [x] Admin can add/remove IPs via API without restarting the server (hot config)
 - [x] request.client.host is used for IP — not a user-supplied header like X-Forwarded-For
       (X-Forwarded-For can be spoofed — only use it if you're behind a trusted reverse proxy)
 
@@ -116,7 +116,7 @@ Opus should respond to each section with:
 - [x] SCAN + DEL uses a pipeline for efficiency (not one DEL per key)
 - [x] SCAN uses COUNT hint (e.g. COUNT=100) to batch results
 - [x] SCAN loop continues until cursor returns 0 (cursor != 0 means more keys remain)
-- [ ] Invalidation is fire-and-forget (asyncio.create_task) — doesn't block the response
+- [x] Invalidation is fire-and-forget (asyncio.create_task) — doesn't block the response
 - [x] If no keys found for the table pattern, that's fine — no error
 
 ### 2.4 Auto-LIMIT
@@ -143,7 +143,7 @@ Opus should respond to each section with:
 - [x] Budget check happens AFTER cost estimation, BEFORE execution
 - [x] Budget deduction happens AFTER successful execution — not before
       (deducting before execution means failed queries still consume budget — wrong)
-- [ ] Admin role gets higher (or unlimited) budget — not same as readonly
+- [x] Admin role gets higher (or unlimited) budget — not same as readonly
 
 ---
 
@@ -322,6 +322,16 @@ Opus should respond to each section with:
 - [x] NEVER run EXPLAIN ANALYZE for cost estimation (pre-flight)
       EXPLAIN without ANALYZE for pre-flight (doesn't execute the query)
       EXPLAIN ANALYZE only POST-execution (actually runs the query)
+
+- [x] NEVER run EXPLAIN ANALYZE on cache hits
+      Caching EXPLAIN ANALYZE implies executing the query, completely defeating the cache. Serialize the analysis metadata inside the Redis payload instead.
+
+- [x] NEVER rely purely on column names for PII masking
+      Use Blind DLP Regex scanning on the actual string values to catch SQL `AS` aliasing bypasses.
+
+- [x] NEVER pass raw SQL directly into SQLAlchemy text() without escaping colons
+      Use `.replace(':', '\\:')` so native Postgres casting (`::uuid`) or JSON operators don't cause StatementError bind parameter exceptions.
+
 
 - [x] NEVER let circuit breaker state live in a Python global/module variable
       Must be in Redis — global state is lost on every container restart.

@@ -35,7 +35,8 @@ async def test_write_audit_log_is_fire_and_forget(mock_create_task, mock_session
 async def test_get_audit_logs(mock_session_cls):
     """Get audit logs should query the DB and return formatted list."""
     mock_session = AsyncMock()
-    mock_result = AsyncMock()
+    from unittest.mock import MagicMock
+    mock_result = MagicMock()
     
     # Mocking a returned row
     class MockRow:

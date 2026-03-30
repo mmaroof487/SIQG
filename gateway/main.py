@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("🛑 Shutting down Queryx Gateway")
     await close_db()
-    await redis_client.close()
+    await redis_client.aclose()
     logger.info("✅ Cleanup complete")
 
 
@@ -85,7 +85,7 @@ async def health_check(request: Request):
 
 # Status endpoint
 @app.get("/api/v1/status")
-async def status(request):
+async def status(request: Request):
     """Gateway status with DB and Redis health."""
     try:
         # Test Redis

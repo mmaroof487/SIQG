@@ -23,7 +23,7 @@ This script will automatically rebuild the gateway, provision the primary and re
 
 ### Phase 2: Performance Layer
 ✅ Query fingerprinting (SHA-256 of normalized query)
-✅ Redis cache (2-5ms hits on identical queries)
+✅ Redis True Cache (2-5ms hits, DB fully bypassed by inline analysis metadata)
 ✅ Cache invalidation (table-tagged, triggers on INSERT/UPDATE/DELETE)
 ✅ Cost estimation (EXPLAIN without execution)
 ✅ Budget enforcement (daily per-user cost limit)
@@ -35,7 +35,8 @@ This script will automatically rebuild the gateway, provision the primary and re
 ✅ Recursive Seq Scan extraction & Index Recommendations
 ✅ Query complexity scoring (`low`/`medium`/`high`)
 ✅ Circuit Breaker State Management (Open/Half-Open/Closed)
-✅ Column Encryption (AES-256-GCM) & RBAC Masking
+✅ Column Encryption (AES-256-GCM) & Blind DLP Pattern Masking (Defeats SQL Aliasing)
+✅ Native SQLAlchemy colon escaping for raw Postgres casting (`::uuid`) & JSON operators
 ✅ Slow query detection + persistence
 
 ### Phase 4: Observability Layer

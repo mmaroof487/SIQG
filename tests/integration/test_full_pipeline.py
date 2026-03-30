@@ -18,7 +18,8 @@ async def test_status_endpoint(client):
     response = client.get("/api/v1/status")
     assert response.status_code == 200
     body = response.json()
-    assert "service" in body
+    assert "status" in body
+    assert "redis" in body
 
 
 @pytest.mark.asyncio

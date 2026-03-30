@@ -11,6 +11,7 @@
    - ✅ Syntax validated & integrated into query router
 
 2. **Redis Cache** (`middleware/performance/cache.py`)
+   - ✅ True database bypass: Excludes Postgres entirely on Cache HITs by serializing analysis metadata inside Redis
    - ✅ Stores/retrieves query results with TTL (default 60 seconds)
    - ✅ Cache key format: `siqg:cache:{fingerprint}:{role}`
    - ✅ Table-tagged invalidation: `siqg:cache_tags:{table}`
@@ -41,7 +42,8 @@
    - ✅ Deducts cost after successful query execution
 
 6. **RBAC with PII Masking** (`middleware/security/rbac.py`)
-   - ✅ Added `apply_rbac_masking(role, rows)` function (31 lines)
+   - ✅ Added `apply_rbac_masking(role, rows)` function
+   - ✅ Advanced Blind Regex DLP: Scans all returned strings generically to immediately obscure escaped PII, defeating SQL `AS` alias attacks.
    - ✅ Masks sensitive columns based on user role:
      - **Admin**: No masking (full access)
      - **Readonly/Guest**: PII masking applied
@@ -344,12 +346,9 @@ docker-compose exec postgres psql -U postgres -d siqg -c "
 
 ---
 
-## Next: Phase 3 (Weeks 5-6)
+## Next: Phase 5 (Future Expansion)
 
-Phase 3 will add:
+Phase 5 will add:
 
-- EXPLAIN ANALYZE execution (vs just EXPLAIN)
-- Index recommendations based on query plans
-- Slow query logging (>200ms)
-- Complexity scoring
-- Pre-flight EXPLAIN for dry-run mode
+- Complete LLM-first intelligence pipeline.
+- Connect custom semantic engines to existing indexing strategies.

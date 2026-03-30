@@ -3,7 +3,7 @@
 > A 4-layer database middleware in Python/FastAPI that sits between clients and PostgreSQL.
 > Every query passes through security, performance, execution, and observability layers.
 
-![Phase 1: Foundation](https://img.shields.io/badge/Phase-1%20Complete-green)
+![Phase 4: Observability](https://img.shields.io/badge/Phase-4%20Complete-green)
 ![Tests](https://img.shields.io/badge/Tests-Unit%20%2B%20Integration-blue)
 ![Coverage](https://img.shields.io/badge/Coverage-70%25%2B-brightgreen)
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
@@ -257,6 +257,15 @@ Returns: `{status, redis}`
 **GET /api/v1/admin/metrics/live**
 Returns: `{request_count, error_count, cache_hits, slow_queries}`
 
+**GET /api/v1/admin/audit/export**
+Returns: Streaming CSV of structural audit logs
+
+**GET /api/v1/admin/heatmap**
+Returns: Array of table access frequencies `[{"table": "name", "score": count}]`
+
+**GET /api/v1/admin/slow-queries**
+Returns: Recent slow queries with EXPLAIN ANALYZE data
+
 ---
 
 ## Configuration
@@ -388,6 +397,15 @@ queryx/
 - ✅ Query diff viewer (original vs executed via auto-LIMIT)
 - ✅ Pre-flight EXPLAIN cost estimation display
 
+## Phase 4: Observability (Complete)
+
+- ✅ Trace IDs & JSON structured logging
+- ✅ Immutable audit log (fire-and-forget async insertion)
+- ✅ Real-time metrics via Redis (P50/P99 latencies, cache hit ratio)
+- ✅ Table access heatmap (Redis ZSETs)
+- ✅ Webhook alerting system (Honeypot, Slow Query, Circuit Breaker)
+- ✅ Admin endpoints (streaming CSV audit export, live dashboard metrics)
+
 
 ## Troubleshooting
 
@@ -428,13 +446,13 @@ python -m pytest tests/
 
 3. **Fast-fail security**: IP check before auth, injection detection before execution. Fail as early as possible.
 
-4. **Smart caching**: Query fingerprinting + table-tagged invalidation means cache is always correct. No stale data.
+4. **True Caching**: Query fingerprinting + table-tagged invalidation means cache is always correct. True 100% database bypass (caching analysis metadata inline).
 
 5. **Observability built-in**: Trace IDs, audit logs, metrics served via REST API. No external Prometheus/Grafana tools.
 
 6. **Circuit breaker**: When DB fails, gateway fails fast (503) instead of hanging. HALF_OPEN state tests recovery. Production-ready resilience pattern.
 
-7. **PII masking**: Different roles see different data. Admin sees SSN fully, readonly sees masked (**\*-**-6789). Implemented at result level, not in query.
+7. **Blind DLP Data Masking**: Different roles see different data. Readonly sees masked SSNs/Emails. Blind Regex Data Loss Prevention prevents attackers from stealing data using SQL `AS` aliases.
 
 8. **EXPLAIN ANALYZE**: Post-execution plan analysis → index recommendations. Rule-based engine suggests CREATE INDEX DDL.
 

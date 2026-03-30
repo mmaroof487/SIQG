@@ -21,8 +21,10 @@ async def estimate_query_cost(request: Request, query: str, is_select: bool = Tr
     try:
         async with PrimarySession() as session:
             # Run EXPLAIN (no ANALYZE - doesn't execute the query)
+            # Escape colons so SQLAlchemy doesn't parse them as bind parameters.
             explain_query = f"EXPLAIN (FORMAT JSON) {query}"
-            result = await session.execute(text(explain_query))
+            safe_query = explain_query.replace(':', '\\:')
+            result = await session.execute(text(safe_query))
             rows = result.fetchall()
 
             if rows:

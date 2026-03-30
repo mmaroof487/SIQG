@@ -128,18 +128,8 @@ async def execute_query(
             )
             if cached_data is not None:
                 logger.info(f"[{trace_id}] ✅ Cache HIT - returning cached result")
-                # Keep EXPLAIN metadata out of Redis cache; re-compute for response.
-                cached_explain = {}
-                cached_suggestions = []
-                try:
-                    async with PrimarySession() as analysis_db:
-                        analysis_conn = await analysis_db.connection()
-                        raw = await analysis_conn.get_raw_connection()
-                        cached_explain = await run_explain_analyze(raw.driver_connection, clean_query)
-                    cached_suggestions = generate_index_suggestions(cached_explain, clean_query)
-                except Exception as e:
-                    logger.warning(f"[{trace_id}] Cache-hit EXPLAIN failed: {e}")
-                    cached_explain = {"error": str(e)}
+                # Pull analysis metadata directly from cache to completely avoid DB hits
+                cached_analysis = cached_data.get("analysis", {})
                 return QueryResult(
                     trace_id=trace_id,
                     query_type=query_type,
@@ -150,12 +140,12 @@ async def execute_query(
                     slow=False,
                     cost=cached_data.get("cost", 0),
                     analysis={
-                        "scan_type": cached_explain.get("scan_type", "Unknown"),
-                        "execution_time_ms": cached_explain.get("execution_time_ms", 0.0),
-                        "rows_processed": cached_explain.get("rows_processed", 0),
-                        "total_cost": cached_explain.get("total_cost", cost if cost is not None else 0.0),
-                        "slow_query": (cached_explain.get("execution_time_ms", 0) > settings.slow_query_threshold_ms),
-                        "index_suggestions": cached_suggestions,
+                        "scan_type": cached_analysis.get("scan_type", "Unknown"),
+                        "execution_time_ms": cached_analysis.get("execution_time_ms", 0.0),
+                        "rows_processed": cached_analysis.get("rows_processed", 0),
+                        "total_cost": cached_analysis.get("total_cost", cost if cost is not None else 0.0),
+                        "slow_query": False,
+                        "index_suggestions": cached_analysis.get("index_suggestions", []),
                         "complexity": score_complexity(clean_query),
                     },
                 )
@@ -311,6 +301,13 @@ async def execute_query(
                 "rows_count": len(rows_dict),
                 "latency_ms": latency_ms,
                 "cost": cost,
+                "analysis": {
+                    "scan_type": explain_result.get("scan_type", "Unknown"),
+                    "execution_time_ms": explain_result.get("execution_time_ms", 0.0),
+                    "rows_processed": explain_result.get("rows_processed", 0),
+                    "total_cost": explain_result.get("total_cost", cost if cost is not None else 0.0),
+                    "index_suggestions": suggestions,
+                }
             }
             await write_cache(
                 request,

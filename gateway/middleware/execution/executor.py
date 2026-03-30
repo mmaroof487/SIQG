@@ -66,9 +66,11 @@ async def execute_with_timeout(
                 # Set query timeout
                 await session.execute(text(f"SET statement_timeout = {timeout_seconds * 1000}"))
 
-                # Execute query
+                # Execute query. Escape colons to prevent SQLAlchemy from treating them as bind parameters 
+                # (which would crash native Postgres casting like ::uuid or JSON ops).
+                safe_query = query.replace(':', '\\:')
                 result = await asyncio.wait_for(
-                    session.execute(text(query)),
+                    session.execute(text(safe_query)),
                     timeout=timeout_seconds
                 )
 

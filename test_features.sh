@@ -140,6 +140,21 @@ else
     test_result "Rate limit triggers by 65 requests" "PASS"
 fi
 echo ""
+# 4.5 Test Honeypot Detection
+echo "X️⃣ [P1] Testing Honeypot Detection (secret_keys)..."
+RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT * FROM secret_keys"}')
+
+HONEYPOT_ERROR=$(echo "$RESPONSE" | jq -r '.detail' 2>/dev/null)
+if [[ "$HONEYPOT_ERROR" == *"forbidden"* ]] || [[ "$HONEYPOT_ERROR" == *"Access to this resource"* ]]; then
+    test_result "Honeypot detection working (secret_keys blocked)" "PASS"
+else
+    test_result "Honeypot detection NOT working" "FAIL"
+    echo "     Response: $HONEYPOT_ERROR"
+fi
+echo ""
 fi
 
 echo ""
@@ -274,6 +289,30 @@ if [ "$CACHED" = "true" ] && [ "$HAS_COMPLEXITY" != "null" ]; then
 else
     test_result "Cache hit analysis missing" "FAIL"
     echo "     Response: $RESPONSE"
+fi
+echo ""
+
+# 9.5 Test Circuit Breaker Half-Open State
+echo "9️⃣.5️⃣ [P3] Testing Circuit Breaker Half-Open..."
+# Force circuit breaker state to half_open using Redis client inside the docker container
+if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose exec -T redis redis-cli SET circuit_breaker:state half_open > /dev/null
+    
+    # Make a request - it should succeed and transition back to closed
+    RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"query":"SELECT 1 as cb_recovery"}')
+    
+    # Verify the state is closed
+    CB_STATE=$(docker-compose exec -T redis redis-cli GET circuit_breaker:state | tr -d '\r')
+    if [ "$CB_STATE" = "closed" ] || [ -z "$CB_STATE" ]; then
+        test_result "Circuit breaker transitioned HALF_OPEN -> CLOSED" "PASS"
+    else
+        test_result "Circuit breaker transition failed. State: $CB_STATE" "FAIL"
+    fi
+else
+    echo "⚠️ Skipping Circuit Breaker Half-Open test (docker-compose not found in test context)"
 fi
 echo ""
 

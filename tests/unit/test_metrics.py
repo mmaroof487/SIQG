@@ -34,7 +34,9 @@ async def test_record_latency_uses_pipeline():
     """Latency recording should use LPUSH + LTRIM in a pipeline."""
     request = MagicMock()
     redis = AsyncMock()
-    pipe = AsyncMock()
+    redis.pipeline = MagicMock()
+    pipe = MagicMock()
+    pipe.execute = AsyncMock()
     redis.pipeline.return_value = pipe
 
     request.app.state.redis = redis

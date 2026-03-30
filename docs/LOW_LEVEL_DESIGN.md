@@ -38,9 +38,9 @@ The security layer immediately terminates requests that violate security policie
 - **Destructive Queries:** Extracts the first SQL keyword. Blocks `DROP`, `DELETE`, `TRUNCATE`, and `ALTER` operations to enforce a strict read/append-only paradigm where necessary.
 - **Honeypot:** Checks the query string for access to monitored, deceptive tables. Triggers immediate security alerts if hit.
 
-### 1.5 Role-Based Access Control (RBAC) & Masking (`rbac.py`)
+### 1.5 Role-Based Access Control (RBAC) & Blind DLP Masking (`rbac.py`)
 - **Roles:** Hierarchical permissions (Admin, Readonly, Guest).
-- **Masking:** Post-execution pipeline step. Applies regex-based replacements to result sets to obscure PII (Emails, SSNs, Credit Cards) dynamically based on the user's role.
+- **Masking:** Post-execution pipeline step. Applies explicit column-name masking, as well as an advanced **Blind Regex DLP scanner** over all returned string cells. This dynamically obscures PII (Emails, SSNs, Credit Cards) regardless of the column name, completely defeating SQL `AS` aliasing bypass attacks.
 
 ---
 
@@ -54,7 +54,8 @@ The performance layer minimizes database load through intelligent caching and pr
 - **Table Extraction:** Uses regex to parse the AST of the query to identify all dependencies (tables in `FROM` and `JOIN` clauses).
 
 ### 2.2 Semantic Caching (`cache.py`)
-- **Storage:** Results are stored in Redis as JSON-serialized lists using the key `siqg:cache:{fingerprint}:{role}`. Role-separation prevents privilege escalation via cache hits.
+- **Storage:** Results are stored in Redis as JSON-serialized lists using the key `siqg:cache:{fingerprint}:{role}`. Role-separation prevents privilege escalation via cache hits. The `EXPLAIN` analysis metadata is serialized *inside* the payload.
+- **True Cache Bypass:** Cache hits hydrate the response (including index suggestions and performance metrics) 100% from Redis, completely skipping the database execution layer. This ensures the primary DB load drops to exactly zero.
 - **Invalidation Strategy:** Table-tagged caching. Writes (INSERT/UPDATE/DELETE) trigger a fire-and-forget background task that uses Redis `SSCAN` to find and delete all cached queries associated with the affected tables.
 
 ### 2.3 Cost Estimation (`cost_estimator.py`)
@@ -76,9 +77,10 @@ The performance layer minimizes database load through intelligent caching and pr
 
 The execution layer handles robust database communication and explains the context behind query performance.
 
-### 3.1 Read/Write Routing (`executor.py`)
+### 3.1 Execution Engine & Routing (`executor.py`)
 - **Selector:** Parses the initial SQL verb.
 - **Routing:** Directs `SELECT` statements to the PostgreSQL Replica. Directs `INSERT`, `UPDATE`, `DELETE`, and complex `WITH` (CTE) queries to the PostgreSQL Primary.
+- **Native SQL Safety:** Safely escapes SQLAlchemy bind parameters (`\:`) so that user queries containing native Postgres casting (e.g., `::uuid`) or JSON operators do not crash the downstream parsing engine.
 
 ### 3.2 Timeouts and Retries (`executor.py`)
 - **Timeout Limit:** Enforced via Python `asyncio.wait_for` and PostgreSQL `SET statement_timeout`. Admin users get an extended timeout limit.

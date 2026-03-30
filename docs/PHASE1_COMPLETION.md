@@ -496,23 +496,17 @@ make shell-db              # Access postgres
 ## ⚠️ Known Limitations (Non-Blocking)
 
 - Honeypot table detection: Defined in settings, not yet checked in validator (easy add)
-- Webhook alerts: Defined but not firing (Phase 4)
-- AI features: openai_api_key in config but not integrated (Phase 6)
+- AI features: openai_api_key in config but not integrated (Phase 5)
 - Frontend: Not started (Phase 6)
 - SDK + CLI: Not started (Phase 6)
 - HMAC request signing: In auth.py but not integrated to routes (Phase 2)
 
 ---
 
-## 📝 Next: Phase 2 (Week 3–4)
+## 📝 Next: Phase 5 (Future Expansion)
 
-- [ ] Honeypot table detection (validator.py)
-- [ ] Fix database execution (SQLAlchemy async in query endpoint)
-- [ ] Cost estimation check before execution
-- [ ] Cache performance benchmarks (same query twice)
-- [ ] Load testing with Locust (before/after cache)
-- [ ] Slow query table logging
-- [ ] Daily budget enforcement in endpoint
+- [ ] Connect custom semantic engines to existing indexing strategies
+- [ ] Complete LLM-first intelligence pipeline
 
 ---
 

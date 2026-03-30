@@ -1,4 +1,4 @@
-# SIQG Phase 3: Execution Layer Features
+# SIQG Phase 4: Full System Features
 *A plain-English explanation of the major features successfully built into the system.*
 
 **1. The "Circuit Breaker" (Protection against crashes)**

@@ -37,7 +37,7 @@ async def run_explain_analyze(conn, query: str) -> dict:
 
 
 def _extract_all_nodes(plan: dict) -> list:
-    if not plan:
+    if plan is None:
         return []
     nodes = [plan]
     for child in plan.get("Plans", []):
