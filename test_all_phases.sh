@@ -24,13 +24,19 @@ if ! command -v docker >/dev/null 2>&1; then
   echo -e "${RED}❌ Docker not found${NC}"
   exit 1
 fi
-if ! command -v docker-compose >/dev/null 2>&1; then
+
+# Support both docker-compose v1 (standalone) and docker compose v2 (plugin)
+if command -v docker-compose >/dev/null 2>&1; then
+  DC=(docker-compose)
+elif docker compose version >/dev/null 2>&1; then
+  DC=(docker compose)
+else
   echo -e "${RED}❌ Docker Compose not found${NC}"
   exit 1
 fi
 
 echo -e "${YELLOW}Starting services once...${NC}"
-if ! docker-compose up -d --build --remove-orphans; then
+if ! "${DC[@]}" up -d --build --remove-orphans; then
   echo -e "${RED}❌ Failed to start services${NC}"
   exit 1
 fi
@@ -39,13 +45,13 @@ echo -e "${YELLOW}Waiting 30s for services to be fully ready...${NC}"
 sleep 30
 
 # Initialize gateway if missing pytest (same as test_phase1_phase2.sh does)
-if ! docker-compose exec -T gateway sh -c 'python -m pytest --version >/dev/null 2>&1'; then
+if ! "${DC[@]}" exec -T gateway sh -c 'python -m pytest --version >/dev/null 2>&1'; then
     echo -e "${YELLOW}pytest missing in gateway container, installing...${NC}"
-    docker-compose exec -T gateway sh -c 'pip install --no-cache-dir pytest pytest-asyncio pytest-cov >/dev/null'
+    "${DC[@]}" exec -T gateway sh -c 'pip install --no-cache-dir pytest pytest-asyncio pytest-cov >/dev/null'
 fi
 
 echo -e "\n${YELLOW}Running Unit Tests...${NC}"
-docker-compose exec -T gateway sh -c 'cd /app && python -m pytest tests/ -v --tb=short 2>&1' || true
+"${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/ -v --tb=short 2>&1' || true
 
 echo -e "\n${YELLOW}Running Phase 1 checks...${NC}"
 if bash ./test_features.sh phase1; then
@@ -57,7 +63,7 @@ else
 fi
 
 echo -e "${YELLOW}Running Phase 2 checks...${NC}"
-docker-compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
+"${DC[@]}" exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 if bash ./test_features.sh phase2; then
   PHASE2_STATUS=0
   echo -e "${GREEN}✅ Phase 2 passed${NC}\n"
@@ -67,7 +73,7 @@ else
 fi
 
 echo -e "${YELLOW}Running Phase 3 checks...${NC}"
-docker-compose exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
+"${DC[@]}" exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 if bash ./test_features.sh phase3; then
   PHASE3_STATUS=0
   echo -e "${GREEN}✅ Phase 3 passed${NC}\n"
@@ -86,7 +92,7 @@ else
 fi
 
 echo -e "${YELLOW}Final cleanup...${NC}"
-docker-compose down -v >/dev/null 2>&1 || true
+"${DC[@]}" down -v >/dev/null 2>&1 || true
 
 echo -e "\n${BLUE}========================================${NC}"
 echo -e "${BLUE}              Final Summary${NC}"
