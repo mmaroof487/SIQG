@@ -1,4 +1,4 @@
-# Queryx — Secure Intelligent Query Gateway
+# Argus — Secure Intelligent Query Gateway
 
 > A 4-layer database middleware in Python/FastAPI that sits between clients and PostgreSQL.
 > Every query passes through security, performance, execution, and observability layers.
@@ -345,7 +345,7 @@ make shell-db
 ## Project Structure
 
 ```
-queryx/
+argus/
 ├── gateway/
 │   ├── main.py                 # FastAPI app + lifespan
 │   ├── config.py               # Settings (pydantic)
