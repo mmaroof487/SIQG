@@ -1,6 +1,27 @@
 #!/bin/bash
+# ⚠️ DEPRECATED — This script is retained for historical reference only.
+#
+# USE INSTEAD: bash test_all_phases.sh
+#
+# This older curl-based test script has been replaced by a comprehensive pytest-based
+# test suite that covers all 6 phases (Security, Performance, Intelligence, Observability,
+# Security Hardening, AI + Polish) with 134 tests and proper coverage reporting.
+#
+# The new test_all_phases.sh provides:
+# - Complete phase-by-phase testing
+# - 134 unit + integration tests
+# - 71%+ code coverage
+# - JSON output and CI integration
+#
+# To run the full test suite:
+#   bash test_all_phases.sh
+#
+#
+
+# ============================================================================
 # Test script for Phase 1 + 2 + 3 features using curl.
 # Runs checks phase-by-phase so each layer can be verified independently.
+# ============================================================================
 
 set -euo pipefail
 

@@ -100,3 +100,21 @@ class ArgusUser(HttpUser):
         ) as response:
             if response.status_code == 400:
                 response.success()
+
+    @task(2)
+    def explain_query(self):
+        """Phase 6: Query explanation endpoint."""
+        self.client.post(
+            "/api/v1/ai/explain",
+            json={"query": "SELECT COUNT(*) FROM pg_database"},
+            headers=self.headers,
+        )
+
+    @task(1)
+    def nl_to_sql(self):
+        """Phase 6: Natural language to SQL conversion."""
+        self.client.post(
+            "/api/v1/ai/nl-to-sql",
+            json={"question": "How many databases exist?"},
+            headers=self.headers,
+        )

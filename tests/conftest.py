@@ -15,7 +15,13 @@ os.environ.setdefault("DB_REPLICA_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
 # Add gateway directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "gateway"))
+# In Docker: ./gateway:/app, so gateway files are at /app
+# Locally: gateway files are at ./gateway
+gateway_dir = Path(__file__).parent.parent / "gateway"
+if not gateway_dir.exists():
+    # Try current working directory (Docker container context)
+    gateway_dir = Path.cwd()
+sys.path.insert(0, str(gateway_dir))
 
 import pytest
 from fastapi.testclient import TestClient

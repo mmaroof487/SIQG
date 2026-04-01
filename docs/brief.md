@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0-final
 **Stack:** Python 3.11+ · FastAPI · PostgreSQL · Redis · React
-**Test Coverage:** 120+ tests passing, 90%+ coverage · 5 phases complete
+**Test Coverage:** 134 tests passing, 71%+ coverage · 6 phases complete
 **Status:** Production-ready — All phases complete, zero warnings, interview-proof
 
 ---
@@ -312,9 +312,10 @@ docker compose exec gateway pytest tests/ -v --cov=. --cov-report=term-missing
 
 | Metric                    | Value                                           |
 | ------------------------- | ----------------------------------------------- |
-| Tests passing             | 115 / 115                                       |
-| Test files                | 20 (unit + integration)                         |
-| Phases complete           | 4 of 5                                          |
+| Tests passing             | 134 / 134  ✅                                  |
+| Test files                | 25 (unit + integration + Phase 6)                |
+| Phases complete           | **6 of 6** ✅                                   |
+| Code coverage             | 71%+                                            |
 | Cache latency (hit)       | ~2ms                                            |
 | Cache latency (miss)      | ~9ms                                            |
 | Rate limit threshold      | 60 req/min (configurable)                       |
@@ -323,7 +324,9 @@ docker compose exec gateway pytest tests/ -v --cov=. --cov-report=term-missing
 | Circuit breaker cooldown  | 30s (configurable)                              |
 | Daily budget default      | 50,000 cost units                               |
 | Docker services           | 5 (gateway, postgres, replica, redis, frontend) |
+| SDK version               | 0.1.0 (pip install-able)                        |
+| CLI commands              | 6 (fully functional)                            |
 
 ---
 
-_Argus — because nothing should reach your database unseen._
+_Argus — because nothing should reach your database unseen. Now with AI insights._

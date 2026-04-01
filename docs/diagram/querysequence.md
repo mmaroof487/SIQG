@@ -1,3 +1,16 @@
+# Request Sequence Diagram — Query Execution (Phase 1-5)
+
+## Overview
+Detailed step-by-step sequence for a single query request going through the entire gateway pipeline.
+
+**Scope:** Shows the flow for standard queries without cache hits.
+
+**Phase 6 Reference:**
+- Phase 6 adds `/api/v1/ai/nl-to-sql` endpoint (converts natural language to SQL, which then follows this sequence)
+- Phase 6 adds `/api/v1/ai/explain` endpoint (returns SQL explanation without execution)
+
+---
+
 ```mermaid
 sequenceDiagram
     participant C as Client

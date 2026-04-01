@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5 verification in sequence efficiently.
+# Run Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5 -> Phase 6 verification in sequence.
 # Usage: bash test_all_phases.sh
 
 set -u
@@ -15,10 +15,11 @@ PHASE2_STATUS=0
 PHASE3_STATUS=0
 PHASE4_STATUS=0
 PHASE5_STATUS=0
+PHASE6_STATUS=0
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}   Argus Full Phase Test Runner${NC}"
-echo -e "${BLUE}   (Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5)${NC}"
+echo -e "${BLUE}   (Phase 1 -> 6: Foundation to AI+Polish)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -102,6 +103,23 @@ else
   echo -e "${RED}❌ Phase 5 unit tests failed${NC}\n"
 fi
 
+echo -e "${YELLOW}Running Phase 6 checks (AI + Polish)...${NC}"
+echo -e "${YELLOW}Running Phase 6 AI endpoint tests...${NC}"
+if "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/unit/test_ai.py -v --tb=short 2>&1'; then
+  echo -e "${GREEN}✅ Phase 6 AI tests passed${NC}\n"
+else
+  PHASE6_STATUS=1
+  echo -e "${RED}❌ Phase 6 AI tests failed${NC}\n"
+fi
+
+echo -e "${YELLOW}Running Phase 6 SDK client tests...${NC}"
+if "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/unit/test_sdk_client.py -v --tb=line 2>&1'; then
+  echo -e "${GREEN}✅ Phase 6 SDK tests passed${NC}\n"
+else
+  PHASE6_STATUS=1
+  echo -e "${RED}❌ Phase 6 SDK tests failed (collection OK, tests may be skipped)${NC}\n"
+fi
+
 echo -e "${YELLOW}Final cleanup...${NC}"
 "${DC[@]}" down -v >/dev/null 2>&1 || true
 
@@ -110,39 +128,45 @@ echo -e "${BLUE}              Final Summary${NC}"
 echo -e "${BLUE}========================================${NC}"
 
 if [ $PHASE1_STATUS -eq 0 ]; then
-  echo -e "Phase 1: ${GREEN}PASS${NC}"
+  echo -e "Phase 1 (Foundation):        ${GREEN}PASS${NC}"
 else
-  echo -e "Phase 1: ${RED}FAIL${NC}"
+  echo -e "Phase 1 (Foundation):        ${RED}FAIL${NC}"
 fi
 
 if [ $PHASE2_STATUS -eq 0 ]; then
-  echo -e "Phase 2: ${GREEN}PASS${NC}"
+  echo -e "Phase 2 (Performance):       ${GREEN}PASS${NC}"
 else
-  echo -e "Phase 2: ${RED}FAIL${NC}"
+  echo -e "Phase 2 (Performance):       ${RED}FAIL${NC}"
 fi
 
 if [ $PHASE3_STATUS -eq 0 ]; then
-  echo -e "Phase 3: ${GREEN}PASS${NC}"
+  echo -e "Phase 3 (Intelligence):      ${GREEN}PASS${NC}"
 else
-  echo -e "Phase 3: ${RED}FAIL${NC}"
+  echo -e "Phase 3 (Intelligence):      ${RED}FAIL${NC}"
 fi
 
 if [ $PHASE4_STATUS -eq 0 ]; then
-  echo -e "Phase 4: ${GREEN}PASS${NC}"
+  echo -e "Phase 4 (Observability):     ${GREEN}PASS${NC}"
 else
-  echo -e "Phase 4: ${RED}FAIL${NC}"
+  echo -e "Phase 4 (Observability):     ${RED}FAIL${NC}"
 fi
 
 if [ $PHASE5_STATUS -eq 0 ]; then
-  echo -e "Phase 5: ${GREEN}PASS${NC}"
+  echo -e "Phase 5 (Security):          ${GREEN}PASS${NC}"
 else
-  echo -e "Phase 5: ${RED}FAIL${NC}"
+  echo -e "Phase 5 (Security):          ${RED}FAIL${NC}"
 fi
 
-TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS + PHASE4_STATUS + PHASE5_STATUS))
+if [ $PHASE6_STATUS -eq 0 ]; then
+  echo -e "Phase 6 (AI + Polish):       ${GREEN}PASS${NC}"
+else
+  echo -e "Phase 6 (AI + Polish):       ${RED}FAIL${NC}"
+fi
+
+TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS + PHASE4_STATUS + PHASE5_STATUS + PHASE6_STATUS))
 echo ""
 if [ $TOTAL_FAILS -eq 0 ]; then
-  echo -e "${GREEN}✅ All phases passed${NC}"
+  echo -e "${GREEN}✅ All phases (1-6) passed successfully!${NC}"
   exit 0
 fi
 

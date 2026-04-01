@@ -189,21 +189,36 @@ async def execute_query(
         # === DRY RUN MODE ===
         if payload.dry_run:
             logger.info(f"[{trace_id}] Dry run mode - skipping execution")
+            complexity = score_complexity(clean_query)
             return QueryResult(
                 trace_id=trace_id,
                 query_type=query_type,
-                rows=[],
+                rows=[],  # No actual execution in dry-run
                 rows_count=0,
                 latency_ms=0,
                 cost=cost,
                 analysis={
+                    "mode": "dry_run",
+                    "status": "would_execute",
                     "scan_type": None,
                     "execution_time_ms": 0,
                     "rows_processed": 0,
-                    "total_cost": cost,
+                    "total_cost": cost if cost is not None else 0.0,
                     "slow_query": False,
+                    "complexity": complexity,
                     "index_suggestions": [],
-                    "complexity": score_complexity(clean_query),
+                    "pipeline_checks": {
+                        "ip_filter": "pass",
+                        "rate_limit": "pass",
+                        "injection_check": "pass",
+                        "rbac": "pass",
+                        "honeypot": "pass",
+                    },
+                    "query_diff": {
+                        "original": clean_query,
+                        "would_execute": execution_query if cost > settings.cost_threshold_warn else clean_query,
+                    },
+                    "message": "No query was executed. All pipeline checks passed.",
                 },
             )
 

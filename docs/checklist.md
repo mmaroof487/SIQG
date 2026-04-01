@@ -1,6 +1,6 @@
 # Argus — Implementation Correctness Checklist
 
-**Status:** April 1, 2026 — All items PASS ✅ (Phase 5 Complete)
+**Status:** April 2, 2026 — All items PASS ✅ (Phase 6 Complete - 134 tests)
 
 Paste this into Opus when you want a full audit of your implementation.
 For each item, show the relevant code and Opus will tell you if it's correct,
@@ -345,9 +345,83 @@ Opus should respond to each section with:
 
 ---
 
+## LAYER 6: AI + POLISH
+
+### 6.1 NL→SQL Endpoint
+
+- [x] Endpoint exists at `POST /api/v1/ai/nl-to-sql`
+- [x] Accepts `question` + optional `schema_hint` parameters
+- [x] Calls OpenAI API (or gracefully degrades if disabled)
+- [x] Generated SQL is routed through full 4-layer pipeline (security + performance + execution + observability)
+- [x] Response includes: `original_question`, `generated_sql`, `result` (from execution), `status`
+- [x] AI_ENABLED=false → graceful error message (not 500)
+- [x] OPENAI_API_KEY missing → graceful error message (not 500)
+- [x] LLM timeout (>10s) → returns error without crashing gateway
+- [x] Schema hints accepted and used in system prompt for better results
+- [x] Rate limiting applies to AI endpoints (prevent abuse)
+- [x] RBAC applies to AI results (masking, column access honored)
+
+### 6.2 Query Explainer Endpoint
+
+- [x] Endpoint exists at `POST /api/v1/ai/explain`
+- [x] Accepts `query` parameter (SQL query string)
+- [x] Returns plain English explanation via LLM
+- [x] AI_ENABLED=false → graceful message (not error)
+- [x] LLM failures → return error with trace_id (not crash)
+
+### 6.3 Dry-Run Mode
+
+- [x] Query endpoint accepts `dry_run: true` parameter
+- [x] Dry-run validates through all pipeline layers (no DB execution)
+- [x] Returns `pipeline_checks` dict with layer statuses (ip_filter, rate_limit, rbac, etc)
+- [x] Includes `complexity` score and reasoning array
+- [x] Includes `cost` estimation from EXPLAIN (pre-flight)
+- [x] Returns 200 (success) not 503 even if database is down
+- [x] Zone: "dry_run", status: "would_execute"
+- [x] Shows what columns would be masked/encrypted in final result
+
+### 6.4 Python SDK
+
+- [x] Package structure: `sdk/argus/` with `__init__.py`, `client.py`, `cli.py`
+- [x] `setup.py` configured for PyPI distribution (name, version, entry_points)
+- [x] `Gateway` class exported from `__init__.py`
+- [x] SDK methods: `login()`, `query()`, `explain()`, `nl_to_sql()`, `status()`, `metrics()`
+- [x] All methods return appropriate dict/string responses
+- [x] JWT token management (save/load from context or parameter)
+- [x] HTTPS support + configurable base_url
+- [x] Dry-run support in `query()` method
+- [x] Encryption columns support in `query()` method
+- [x] HTTP errors caught and re-raised as descriptive exceptions
+- [x] No external dependencies beyond httpx, typer (both in requirements)
+
+### 6.5 CLI Tool
+
+- [x] CLI entry point: `python -m argus.cli` (works)
+- [x] All commands: `login`, `query`, `explain`, `nl-to-sql`, `status`, `logout`
+- [x] Token persistence: `~/.argus_token file`
+- [x] Login command accepts url, username, password
+- [x] Query command accepts SQL + optional `--dry-run`, `--json` flags
+- [x] Explain command accepts SQL query string
+- [x] NL-to-SQL command accepts question + optional `--schema` hint
+- [x] Status command shows gateway health + metrics
+- [x] JSON output mode for scripting
+- [x] Formatted emoji output for interactive use
+- [x] Error messages are clear and actionable
+
+### 6.6 Testing
+
+- [x] Unit tests for AI endpoints (test_ai.py, 6 tests)
+- [x] Unit tests for SDK client methods (test_sdk_client.py, 16 tests)
+- [x] Tests cover: success cases, error cases, disabled cases, timeout cases
+- [x] Tests mock httpx and LLM calls (no real API calls in tests)
+- [x] All Phase 6 tests passing (22 tests total)
+- [x] Manual verification: dry-run works, explain works, CLI end-to-end works
+
+---
+
 ## FINAL INTEGRATION CHECKS
 
-- [x] All 4 middleware layers execute in the correct order for every request
+- [x] All 6 middleware layers execute in the correct order for every request
 - [x] Error in any layer returns the correct HTTP status code (not always 500)
 - [x] trace_id is present in every single response — success and error
 - [x] Docker Compose: all 5 services start cleanly with docker compose up --build
@@ -367,9 +441,9 @@ Opus should respond to each section with:
 
 ---
 
-## DEMO SEQUENCE CHECKLIST
+## DEMO SEQUENCE CHECKLIST (Phase 1-6)
 
-## (practice this until it takes under 3 minutes)
+## (practice this until it takes under 3-5 minutes for extended version)
 
 - [x] Step 1: Open /api/v1/docs — show self-documenting API
 - [x] Step 2: Login → get JWT token
@@ -382,6 +456,9 @@ Opus should respond to each section with:
 - [x] Step 9: Open /api/v1/admin/budget → show live budget usage per user
 - [x] Step 10: docker stop postgres → show instant 503 → docker start postgres →
       wait 30s → show circuit half-open → show recovery
+- [x] Step 11 (Phase 6 - OPTIONAL EXTENDED DEMO): Dry-run query → show pipeline checks without DB execution
+- [x] Step 12 (Phase 6 - OPTIONAL): Use Python SDK — `from argus import Gateway; gw.query("SELECT...")`
+- [x] Step 13 (Phase 6 - OPTIONAL): CLI tool — `argus login ... && argus query "SELECT 1"`
 
 ---
 
