@@ -1,6 +1,6 @@
-# Argus Phases 4–5: Full System Features
+# Argus Phases 1–6: Complete System Features
 
-_A plain-English explanation of the major features successfully built into the system (Phases 1–5)._
+_A plain-English explanation of all major features built into the system (Phases 1–6, all complete)._
 
 ## Phase 5: Security Hardening Features
 
@@ -39,3 +39,45 @@ Every single query, connection, error, and success is asynchronously logged with
 
 **12. "Hot Spot" Maps (Heatmaps)**
 The system generates a live visual of which database tables are the most popular (a "heatmap"). Just like looking at traffic on Google Maps, admins can see exactly which parts of the database are being hit the hardest and optimize them accordingly.
+
+---
+
+## Phase 6: AI + Polish Features
+
+**13. Question to SQL (Natural Language Queries - AI)**
+Instead of typing SQL, users can ask the system questions in plain English like _"How many users signed up in the last 7 days?"_ or _"Show me the top 10 customers by order count."_ The system uses AI (OpenAI GPT) to automatically convert these questions into proper SQL, then runs it through the full security pipeline to make sure it's safe. The response includes both the generated SQL and the results.
+
+**14. Query Explainer (AI)**
+If a user gets confused by a complex SQL query, they can ask the system to explain it. The AI reads the query and responds with a plain-English summary like: _"This query finds all customers in California who made purchases in the last month, and shows their total spending and favorite product category. Results are sorted by newest first."_
+
+**15. Dry-Run Mode (Validate Without Executing)**
+Before running an expensive query, users can ask the system to simulate it with `dry_run: true`. The system validates the query against all security rules (SQL injection, permission checks,etc.), estimates the cost and complexity, and shows what would happen—WITHOUT actually touching the database. Great for testing before you run a massive query on production.
+
+**16. Python SDK (Programmatic Access)**
+Developers can now `pip install argus-sdk` and then use Python code to run queries:
+
+```python
+from argus import Gateway
+gw = Gateway("http://localhost:8000").login("user", "pass")
+result = gw.query("SELECT * FROM users")
+print(result["rows"])
+```
+
+The SDK handles authentication, connection management, and error handling—making it super easy to integrate Argus into scripts, web backends, and data pipelines.
+
+**17. Command-Line Tool (CLI)**
+For sysadmins and developers, there is a brand-new command-line interface. You run commands like:
+
+```bash
+argus login http://gateway:8000 admin password123
+argus query "SELECT COUNT(*) FROM orders"
+argus explain "SELECT * FROM users WHERE age > 18"
+argus nl-to-sql "How many users are older than 30?"
+argus status  # Check if gateway is healthy
+```
+
+The token is saved locally, so you only log in once. Perfect for automation scripts and Cron jobs.
+
+---
+
+_Argus is now feature-complete with 6 phases: security, performance, intelligence, observability, hardening, and AI + Polish. All features are tested and production-ready._

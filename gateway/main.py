@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as aioredis
 from config import settings
 from utils.db import init_db, close_db
-from routers.v1 import auth, query, admin, metrics
+from routers.v1 import auth, query, admin, metrics, ai
 import logging
 
 # Configure logging
@@ -69,7 +69,7 @@ async def health_check(request: Request):
         logger.error(f"Redis health check failed: {e}")
         status_data["redis"] = "unhealthy"
         status_data["status"] = "degraded"
-        
+
     try:
         from utils.db import PrimarySession
         from sqlalchemy import text
@@ -79,7 +79,7 @@ async def health_check(request: Request):
         logger.error(f"DB health check failed: {e}")
         status_data["db"] = "unhealthy"
         status_data["status"] = "degraded"
-        
+
     return status_data
 
 
@@ -106,6 +106,7 @@ app.include_router(auth.router)
 app.include_router(query.router)
 app.include_router(admin.router)
 app.include_router(metrics.router)
+app.include_router(ai.router)
 
 logger.info("✅ Routers registered")
 

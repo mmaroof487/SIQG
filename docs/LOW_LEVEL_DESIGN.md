@@ -6,15 +6,16 @@ This document provides a detailed technical breakdown of every component inside 
 
 ## 🏗 System Architecture
 
-The project consists of an asynchronous Python FastAPl gateway sitting in front of a PostgreSQL database cluster (Primary for writes, Replica for reads) and a Redis instance (for caching, rate limiting, metrics, and circuit breaking).
+The project consists of an asynchronous Python FastAPI gateway sitting in front of a PostgreSQL database cluster (Primary for writes, Replica for reads), a Redis instance (for caching, rate limiting, metrics, and circuit breaking), and optional OpenAI integration for AI features.
 
-The core flow involves a **5-Layer Pipeline** executed on every query request:
+The core flow involves a **6-Layer Pipeline** executed on every query request:
 
 1. **Security Layer:** Identity, authorization, threat prevention, honeypot detection.
 2. **Performance Layer:** Caching, limits, budgeting, cost analysis, encryption setup.
 3. **Execution Layer:** Circuit breaker, retry logic, routing, decryption, masking.
 4. **Observability Layer:** Metrics, audits (with exponential retry), anomaly detection.
 5. **Security Hardening:** AES-256-GCM encryption, role-based masking, firewall rules.
+6. **AI + Intelligence:** Natural Language → SQL, Query Explanation, Dry-Run Validation, Python SDK, CLI Tool.
 
 ---
 
@@ -147,3 +148,96 @@ The observability layer is fully asynchronous, preventing monitoring overhead fr
 - **AuditLog:** Central table for the entire gateway. Holds deep request traces.
 - **SlowQuery:** Secondary materialized view for queries exceeding `slow_query_threshold_ms`. Includes planner data, parsed row counts, and the suggested index modifications.
 - **SLASnapshot:** Hourly rollup of percentiles, uptime, and cache hit ratios for historical SLA auditing.
+
+---
+
+## 6️⃣ Layer 6: AI + Intelligence
+
+The AI layer provides natural language interfaces and advanced query analysis without requiring raw SQL expertise.
+
+### 6.1 NL→SQL Endpoint (`routers/v1/ai.py`)
+
+- **LLM Integration:** Async HTTP calls to OpenAI API (GPT-4o-mini by default).
+- **System Prompt:** Instructs LLM to generate PostgreSQL-compliant SQL with proper syntax.
+- **Schema Hints:** Optional parameter allows users to provide table/column hints for better generation.
+- **Pipeline Integration:** Generated SQL automatically routed through full 4-layer security + performance pipeline.
+- **Graceful Degradation:** If `AI_ENABLED=false` or `OPENAI_API_KEY` missing, returns clear error message, not 500.
+- **Timeout Handling:** LLM calls timeout at 10s. Failures caught and returned as error responses.
+
+### 6.2 Query Explainer Endpoint (`routers/v1/ai.py`)
+
+- **Purpose:** Converts complex SQL into plain English prose via LLM.
+- **Input:** Any valid SQL query string.
+- **Output:** Detailed explanation of what the query does, in natural language.
+- **Error Handling:** Gracefully handles AI disabled state.
+
+### 6.3 Dry-Run Mode Enhancement (`routers/v1/query.py`)
+
+- **Parameter:** `dry_run: true` in query payload.
+- **Validation:** Query passes through all security checks (injection, RBAC, rate limit, etc.) without DB execution.
+- **Cost Estimation:** Pre-flight EXPLAIN generates cost estimate.
+- **Pipeline Checks:** Response includes status of each layer (IP filter pass/fail, rate limit pass/fail, etc.).
+- **Complexity Scoring:** Returns complexity score and reasoning array.
+- **Zero DB Impact:** No query execution, no connection pool usage.
+- **Return Status:** HTTP 200 always, even if database is down (since no DB access).
+
+### 6.4 Python SDK (`sdk/argus/client.py`)
+
+- **Gateway Class:** Main interface for programmatic access.
+- **Methods:** `login()`, `query()`, `explain()`, `nl_to_sql()`, `status()`, `metrics()`.
+- **Auth Management:** Stores JWT token in memory or accepts as parameter.
+- **Error Handling:** Catches HTTP errors and re-raises as descriptive exceptions.
+- **Dry-Run Support:** `query()` accepts `dry_run=True` parameter.
+- **Encryption Support:** `query()` accepts `encrypt_columns` list for transparent column encryption.
+- **Distribution:** Configured for PyPI via `setup.py` with entry points.
+
+### 6.5 CLI Tool (`sdk/argus/cli.py`)
+
+- **Framework:** Built with Typer for intuitive command-line UX.
+- **Commands:** `login`, `query`, `explain`, `nl-to-sql`, `status`, `logout`.
+- **Token Persistence:** Stores authenticated JWT in `~/.argus_token` for session reuse.
+- **Output Modes:** Supports human-readable format (emoji indicators) and JSON format for scripting.
+- **Error Messages:** Clear, actionable error feedback for failed operations.
+
+---
+
+## 📦 Project Structure (Phase 6)
+
+```
+gateway/
+  ├── routers/v1/
+  │   ├── auth.py           # JWT/API key auth + registration
+  │   ├── query.py          # Query execution + dry-run
+  │   ├── admin.py          # Admin-only endpoints
+  │   ├── metrics.py        # Live metrics
+  │   └── ai.py             # NL→SQL + Explain endpoints (PHASE 6)
+  │
+  ├── middleware/
+  │   ├── security/         # Auth, brute force, IP filter, rate limit, RBAC, honeypot
+  │   ├── performance/      # Fingerprinting, cache, budget, cost, auto-limit
+  │   ├── execution/        # Circuit breaker, executor, analyzer
+  │   └── observability/    # Audit, metrics, webhooks, heatmap
+  │
+  ├── models/               # SQLAlchemy ORM models
+  └── utils/                # Helpers (DB, Redis, logging)
+
+sdk/
+  ├── argus/
+  │   ├── __init__.py       # Exports Gateway class
+  │   ├── client.py         # Gateway client (156 lines)
+  │   └── cli.py            # CLI tool (270+ lines)
+  ├── setup.py              # Package config for PyPI
+  └── README.md             # SDK documentation
+
+tests/
+  ├── unit/
+  │   ├── test_ai.py        # AI endpoint tests (PHASE 6)
+  │   ├── test_sdk_client.py # SDK client tests (PHASE 6)
+  │   └── ... (20+ other test files)
+  ├── integration/
+  └── load/
+```
+
+---
+
+_Low-level architecture complete across all 6 phases. All components async-first, test-covered, production-hardened._

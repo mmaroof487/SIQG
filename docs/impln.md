@@ -1,3 +1,12 @@
+# ⚠️ HISTORICAL REFERENCE — Phase-wise Implementation Plan
+
+> **NOTE**: This document is a historical reference from the initial project planning phase.
+> **All 6 phases (Phase 1-6) are now COMPLETE.** See [PHASE6_COMPLETION.md](PHASE6_COMPLETION.md) for current status.
+>
+> This document is retained for reference on how the project was built, but is no longer the active development guide.
+
+---
+
 # Argus — Phase-wise Implementation Plan
 
 > Deep technical guide for building the Secure Intelligent Query Gateway from scratch.
