@@ -21,7 +21,7 @@ async def test_circuit_breaker_open(mock_request):
     async def mock_redis_get(key):
         if "state" in key:
             return CircuitBreakerState.OPEN
-        # For 'circuit_breaker:opened_at' return None so it skips cooldown
+        # For 'argus:circuit_breaker:opened_at' return None so it skips cooldown
         return None
         
     mock_request.app.state.redis.get.side_effect = mock_redis_get
@@ -35,4 +35,4 @@ async def test_record_failure(mock_request):
     mock_request.app.state.redis.incr.return_value = 5 # Simulate hitting threshold
     await record_failure(mock_request)
     
-    mock_request.app.state.redis.setex.assert_any_call("circuit_breaker:state", settings.circuit_cooldown_seconds * 10, CircuitBreakerState.OPEN)
+    mock_request.app.state.redis.setex.assert_any_call("argus:circuit_breaker:state", settings.circuit_cooldown_seconds * 10, CircuitBreakerState.OPEN)

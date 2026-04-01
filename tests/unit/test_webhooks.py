@@ -33,7 +33,7 @@ async def test_send_alert_posts_to_webhook(mock_settings, mock_client_cls):
     call_kwargs = mock_client.post.call_args
     payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
     assert "embeds" in payload
-    assert payload["embeds"][0]["title"] == "SIQG Alert: slow_query"
+    assert payload["embeds"][0]["title"] == "Argus Alert: slow_query"
 
 
 @pytest.mark.asyncio

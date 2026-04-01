@@ -3,30 +3,30 @@ import time
 
 async def increment(request: Request, key: str, amount: float = 1):
     redis = request.app.state.redis
-    await redis.incrbyfloat(f"siqg:metrics:{key}", amount)
+    await redis.incrbyfloat(f"argus:metrics:{key}", amount)
 
 async def record_latency(request: Request, latency_ms: float):
     redis = request.app.state.redis
     # Keep last 1000 latency values for percentile calculation
     pipe = redis.pipeline()
-    pipe.lpush("siqg:metrics:latency_samples", latency_ms)
-    pipe.ltrim("siqg:metrics:latency_samples", 0, 999)
+    pipe.lpush("argus:metrics:latency_samples", latency_ms)
+    pipe.ltrim("argus:metrics:latency_samples", 0, 999)
     await pipe.execute()
 
 async def get_live_metrics(redis) -> dict:
     keys = [
-        "siqg:metrics:requests_total",
-        "siqg:metrics:cache_hits",
-        "siqg:metrics:cache_misses",
-        "siqg:metrics:rate_limit_hits",
-        "siqg:metrics:slow_queries",
-        "siqg:metrics:errors",
+        "argus:metrics:requests_total",
+        "argus:metrics:cache_hits",
+        "argus:metrics:cache_misses",
+        "argus:metrics:rate_limit_hits",
+        "argus:metrics:slow_queries",
+        "argus:metrics:errors",
     ]
     values = await redis.mget(*keys)
     metrics = {k.split(":")[-1]: float(v or 0) for k, v in zip(keys, values)}
 
     # Latency percentiles
-    samples = await redis.lrange("siqg:metrics:latency_samples", 0, -1)
+    samples = await redis.lrange("argus:metrics:latency_samples", 0, -1)
     if samples:
         sorted_samples = sorted(float(s) for s in samples)
         n = len(sorted_samples)

@@ -11,7 +11,7 @@ async def send_alert(event_type: str, trace_id: str, user_id: str, message: str,
 
     payload = {
         "embeds": [{
-            "title": f"SIQG Alert: {event_type}",
+            "title": f"Argus Alert: {event_type}",
             "description": message,
             "color": _color_for_event(event_type),
             "fields": [

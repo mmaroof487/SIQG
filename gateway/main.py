@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifespan context manager for app startup/shutdown."""
     # Startup
-    logger.info("🚀 Starting Queryx Gateway")
+    logger.info("🚀 Starting Argus Gateway")
 
     # Initialize database
     await init_db()
@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("🛑 Shutting down Queryx Gateway")
+    logger.info("🛑 Shutting down Argus Gateway")
     await close_db()
     await redis_client.aclose()
     logger.info("✅ Cleanup complete")
@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Queryx - Secure Intelligent Query Gateway",
+    title="Argus - Secure Intelligent Query Gateway",
     description="A 4-layer database middleware for security, performance, intelligence, and observability.",
     version="0.1.0",
     lifespan=lifespan,

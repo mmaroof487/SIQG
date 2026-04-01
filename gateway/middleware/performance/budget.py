@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 async def _budget_key(user_id: str) -> str:
     """Build daily budget key using UTC date."""
     today = datetime.utcnow().date()
-    return f"siqg:budget:{user_id}:{today.isoformat()}"
+    return f"argus:budget:{user_id}:{today.isoformat()}"
 
 
 async def _ensure_ttl(redis, budget_key: str):

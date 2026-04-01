@@ -16,7 +16,7 @@ async def check_rate_limit(request: Request, user_id: str):
     window_seconds = 60
 
     # Rate limit key
-    limit_key = f"ratelimit:{user_id}"
+    limit_key = f"argus:ratelimit:{user_id}"
 
     # Get current minute bucket
     current_bucket = int(time.time()) // window_seconds
@@ -39,13 +39,13 @@ async def check_rate_limit(request: Request, user_id: str):
 
     # Check for anomaly (3x baseline)
     # Baseline = average of last 5 minutes
-    baseline_key = f"ratelimit_baseline:{user_id}"
+    baseline_key = f"argus:ratelimit_baseline:{user_id}"
     baseline = await redis.get(baseline_key)
     baseline = float(baseline) if baseline else limit * 0.5
 
     if count > baseline * 3:
         # Flag anomaly but don't block
-        anomaly_key = f"anomaly:{user_id}"
+        anomaly_key = f"argus:anomaly:{user_id}"
         await redis.setex(anomaly_key, window_seconds, "true")
         request.state.anomaly_flag = True
         logger.warning(f"Anomaly detected: {user_id} ({count} > {baseline * 3:.0f} baseline)")

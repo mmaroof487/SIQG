@@ -9,7 +9,7 @@ PASS_COUNT=0
 FAIL_COUNT=0
 TARGET_PHASE="${1:-all}"
 
-echo "🔐 === Phase 1 + 2 + 3 Comprehensive Test Suite ==="
+echo "🔐 === Argus Comprehensive Test Suite ==="
 echo "Testing security, performance, and intelligence layers"
 echo "Target phase: ${TARGET_PHASE}"
 echo ""
@@ -296,7 +296,7 @@ echo ""
 echo "9️⃣.5️⃣ [P3] Testing Circuit Breaker Half-Open..."
 # Force circuit breaker state to half_open using Redis client inside the docker container
 if command -v docker-compose >/dev/null 2>&1; then
-    docker-compose exec -T redis redis-cli SET circuit_breaker:state half_open > /dev/null
+    docker-compose exec -T redis redis-cli SET argus:circuit_breaker:state half_open > /dev/null
     
     # Make a request - it should succeed and transition back to closed
     RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
@@ -305,7 +305,7 @@ if command -v docker-compose >/dev/null 2>&1; then
       -d '{"query":"SELECT 1 as cb_recovery"}')
     
     # Verify the state is closed
-    CB_STATE=$(docker-compose exec -T redis redis-cli GET circuit_breaker:state | tr -d '\r')
+    CB_STATE=$(docker-compose exec -T redis redis-cli GET argus:circuit_breaker:state | tr -d '\r')
     if [ "$CB_STATE" = "closed" ] || [ -z "$CB_STATE" ]; then
         test_result "Circuit breaker transitioned HALF_OPEN -> CLOSED" "PASS"
     else

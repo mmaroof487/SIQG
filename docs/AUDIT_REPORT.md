@@ -1,4 +1,4 @@
-# SIQG Gateway Security & Performance Audit Report
+# Argus Gateway Security & Performance Audit Report
 
 **Date:** March 26, 2026
 **Scope:** Layers 1 (Security) and 2 (Performance) checklist compliance
@@ -8,7 +8,7 @@
 
 ## Executive Summary (UPDATE: POST-REMEDIATION)
 
-The SIQG gateway implementation was initially audited on March 26, finding 15 checklist items requiring fixes across Layers 1 and 2. 
+The Argus gateway implementation was initially audited on March 26, finding 15 checklist items requiring fixes across Layers 1 and 2. 
 
 **Update (March 28):** All identified CRITICAL, HIGH, and MEDIUM findings have been natively **RESOLVED**.
 - **Security Fixes**: API key DB fallbacks, honeypot table detection, and case-insensitive SQL validators were fully deployed.
@@ -453,7 +453,7 @@ return query.upper()  # Case-insensitive
 
 ```python
 # gateway/middleware/performance/cache.py:12
-cache_key = f"siqg:cache:{fingerprint}:{user_id}:{role}"
+cache_key = f"argus:cache:{fingerprint}:{user_id}:{role}"
 ```
 
 **PARTIAL - Table tracking:**
@@ -462,7 +462,7 @@ cache_key = f"siqg:cache:{fingerprint}:{user_id}:{role}"
 # gateway/middleware/performance/cache.py:26-32
 # Tables stored in separate tag keys, not in cache key
 for table in tables:
-    tag_key = f"siqg:cache_tags:{table}"
+    tag_key = f"argus:cache_tags:{table}"
     await redis.sadd(tag_key, cache_key)
 ```
 
@@ -579,12 +579,12 @@ if not is_select and affected_tables:
    async def invalidate_table_cache(request: Request, table_names: tuple):
        redis = request.app.state.redis
        for table in table_names:
-           tag_key = f"siqg:cache_tags:{table}"
+           tag_key = f"argus:cache_tags:{table}"
            cursor = "0"
            pipeline = redis.pipeline()
 
            while True:
-               cursor, keys = await redis.scan(cursor, match=f"siqg:cache:*", count=100)
+               cursor, keys = await redis.scan(cursor, match=f"argus:cache:*", count=100)
                if keys:
                    for key in keys:
                        pipeline.delete(key)
@@ -764,7 +764,7 @@ return (0.0, False)  # Doesn't block query
 ```python
 # gateway/middleware/performance/budget.py:15
 today = datetime.utcnow().date()
-budget_key = f"siqg:budget:{user_id}:{today.isoformat()}"
+budget_key = f"argus:budget:{user_id}:{today.isoformat()}"
 ```
 
 **PASS - TTL calculation:**
@@ -827,7 +827,7 @@ if is_select:
    async def deduct_budget(request: Request, user_id: str, cost: float):
        redis = request.app.state.redis
        today = datetime.utcnow().date()
-       budget_key = f"siqg:budget:{user_id}:{today.isoformat()}"
+       budget_key = f"argus:budget:{user_id}:{today.isoformat()}"
 
        # Atomic floating-point increment
        await redis.incrbyfloat(budget_key, cost)

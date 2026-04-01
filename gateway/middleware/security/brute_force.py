@@ -12,7 +12,7 @@ async def check_brute_force(request: Request, username: str):
     Raises 423 if locked.
     """
     redis = request.app.state.redis
-    key = f"brute:{request.client.host}:{username}"
+    key = f"argus:brute:{request.client.host}:{username}"
 
     count = await redis.get(key)
     count = int(count) if count else 0
@@ -31,7 +31,7 @@ async def check_brute_force(request: Request, username: str):
 async def record_failed_attempt(request: Request, username: str):
     """Record a failed auth attempt."""
     redis = request.app.state.redis
-    key = f"brute:{request.client.host}:{username}"
+    key = f"argus:brute:{request.client.host}:{username}"
     ttl = settings.brute_force_lockout_minutes * 60
 
     count = await redis.incr(key)
@@ -46,5 +46,5 @@ async def record_failed_attempt(request: Request, username: str):
 async def record_successful_attempt(request: Request, username: str):
     """Clear failed attempts on successful auth."""
     redis = request.app.state.redis
-    key = f"brute:{request.client.host}:{username}"
+    key = f"argus:brute:{request.client.host}:{username}"
     await redis.delete(key)

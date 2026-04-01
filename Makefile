@@ -27,7 +27,7 @@ shell-gateway:
 	docker compose exec gateway bash
 
 shell-db:
-	docker compose exec postgres psql -U siqg -d siqg
+	docker compose exec postgres psql -U argus -d argus
 
 logs:
 	docker compose logs -f gateway

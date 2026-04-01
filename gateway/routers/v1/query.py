@@ -398,7 +398,7 @@ async def get_budget(request: Request, user=Depends(get_current_user)):
     redis = request.app.state.redis
     user_id = str(user.get("sub", request.state.user_id))
     today = datetime.utcnow().date()
-    budget_key = f"siqg:budget:{user_id}:{today.isoformat()}"
+    budget_key = f"argus:budget:{user_id}:{today.isoformat()}"
 
     # Get current usage
     current_usage = await redis.get(budget_key)

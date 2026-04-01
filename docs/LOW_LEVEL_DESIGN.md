@@ -1,6 +1,6 @@
-# SIQG (Secure Intelligent Query Gateway) - Low-Level Design Document
+# Argus (Secure Intelligent Query Gateway) - Low-Level Design Document
 
-This document provides a detailed technical breakdown of every component inside the Secure Intelligent Query Gateway (SIQG). It is intended for developers, maintainers, and security auditors who need to understand the exact mechanics of the system.
+This document provides a detailed technical breakdown of every component inside the Secure Intelligent Query Gateway (Argus). It is intended for developers, maintainers, and security auditors who need to understand the exact mechanics of the system.
 
 ---
 
@@ -54,7 +54,7 @@ The performance layer minimizes database load through intelligent caching and pr
 - **Table Extraction:** Uses regex to parse the AST of the query to identify all dependencies (tables in `FROM` and `JOIN` clauses).
 
 ### 2.2 Semantic Caching (`cache.py`)
-- **Storage:** Results are stored in Redis as JSON-serialized lists using the key `siqg:cache:{fingerprint}:{role}`. Role-separation prevents privilege escalation via cache hits. The `EXPLAIN` analysis metadata is serialized *inside* the payload.
+- **Storage:** Results are stored in Redis as JSON-serialized lists using the key `argus:cache:{fingerprint}:{role}`. Role-separation prevents privilege escalation via cache hits. The `EXPLAIN` analysis metadata is serialized *inside* the payload.
 - **True Cache Bypass:** Cache hits hydrate the response (including index suggestions and performance metrics) 100% from Redis, completely skipping the database execution layer. This ensures the primary DB load drops to exactly zero.
 - **Invalidation Strategy:** Table-tagged caching. Writes (INSERT/UPDATE/DELETE) trigger a fire-and-forget background task that uses Redis `SSCAN` to find and delete all cached queries associated with the affected tables.
 

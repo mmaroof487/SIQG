@@ -1,4 +1,4 @@
-# SIQG — Phase-wise Implementation Plan
+# Argus — Phase-wise Implementation Plan
 
 > Deep technical guide for building the Secure Intelligent Query Gateway from scratch.
 > Every phase has exact files, exact code patterns, exact commands, and a clear done-condition.
@@ -39,7 +39,7 @@ docker compose version  # must be v2 (compose, not compose-V1)
 ### 2. Create project scaffold
 
 ```bash
-mkdir siqg && cd siqg
+mkdir argus && cd argus
 
 # Top-level structure
 mkdir -p gateway/middleware/security
@@ -51,7 +51,7 @@ mkdir -p gateway/routers/v2
 mkdir -p gateway/models
 mkdir -p gateway/utils
 mkdir -p frontend/src/components
-mkdir -p sdk/siqg
+mkdir -p sdk/argus
 mkdir -p tests/unit
 mkdir -p tests/integration
 mkdir -p tests/load
@@ -87,15 +87,15 @@ services:
  postgres:
   image: postgres:15-alpine
   environment:
-   POSTGRES_USER: siqg
-   POSTGRES_PASSWORD: siqg
-   POSTGRES_DB: siqg
+   POSTGRES_USER: argus
+   POSTGRES_PASSWORD: argus
+   POSTGRES_DB: argus
   ports:
    - "5432:5432"
   volumes:
    - pg_data:/var/lib/postgresql/data
   healthcheck:
-   test: ["CMD-SHELL", "pg_isready -U siqg"]
+   test: ["CMD-SHELL", "pg_isready -U argus"]
    interval: 5s
    timeout: 5s
    retries: 5
@@ -103,13 +103,13 @@ services:
  postgres_replica:
   image: postgres:15-alpine
   environment:
-   POSTGRES_USER: siqg
-   POSTGRES_PASSWORD: siqg
-   POSTGRES_DB: siqg
+   POSTGRES_USER: argus
+   POSTGRES_PASSWORD: argus
+   POSTGRES_DB: argus
   ports:
    - "5433:5432"
   healthcheck:
-   test: ["CMD-SHELL", "pg_isready -U siqg"]
+   test: ["CMD-SHELL", "pg_isready -U argus"]
    interval: 5s
    timeout: 5s
    retries: 5
@@ -155,7 +155,7 @@ shell-gateway:
 	docker compose exec gateway bash
 
 shell-db:
-	docker compose exec postgres psql -U siqg -d siqg
+	docker compose exec postgres psql -U argus -d argus
 
 logs:
 	docker compose logs -f gateway
@@ -170,8 +170,8 @@ restart:
 SECRET_KEY=dev-secret-key-change-in-prod
 JWT_EXPIRY_MINUTES=60
 
-DB_PRIMARY_URL=postgresql+asyncpg://siqg:siqg@postgres:5432/siqg
-DB_REPLICA_URL=postgresql+asyncpg://siqg:siqg@postgres_replica:5432/siqg
+DB_PRIMARY_URL=postgresql+asyncpg://argus:argus@postgres:5432/argus
+DB_REPLICA_URL=postgresql+asyncpg://argus:argus@postgres_replica:5432/argus
 DB_POOL_MIN=5
 DB_POOL_MAX=20
 
@@ -719,7 +719,7 @@ async def login(body: LoginRequest, request: Request, db=Depends(get_primary_db)
 
 @router.post("/keys")
 async def generate_api_key(request: Request):
-    raw_key = f"siqg_{secrets.token_urlsafe(32)}"
+    raw_key = f"argus_{secrets.token_urlsafe(32)}"
     key_hash = hash_api_key(raw_key)
     # Store key_hash in DB (APIKey model)
     # Cache in Redis: apikey:{key_hash} → {user_id, role}
@@ -921,7 +921,7 @@ def get_cache_key(query: str, role: str) -> tuple[str, str]:
     table = table_match.group(1).lower() if table_match else "unknown"
 
     query_hash = hashlib.sha256(fingerprint.encode()).hexdigest()[:16]
-    cache_key = f"siqg:cache:{table}:{query_hash}:{role}"
+    cache_key = f"argus:cache:{table}:{query_hash}:{role}"
     return fingerprint, cache_key, table
 ```
 
@@ -951,10 +951,10 @@ async def set_in_cache(request: Request, cache_key: str, data: list):
 async def invalidate_for_table(request: Request, table: str):
     """
     On any write to {table}, delete all cached SELECT results for that table.
-    Pattern: siqg:cache:{table}:*
+    Pattern: argus:cache:{table}:*
     """
     redis = request.app.state.redis
-    pattern = f"siqg:cache:{table}:*"
+    pattern = f"argus:cache:{table}:*"
     cursor = 0
     deleted = 0
     while True:
@@ -1448,7 +1448,7 @@ def get_logger(name: str) -> logging.Logger:
     logger.setLevel(logging.INFO)
     return logger
 
-logger = get_logger("siqg")
+logger = get_logger("argus")
 ```
 
 ### Step 4.2 — Audit log writer
@@ -1500,30 +1500,30 @@ import time
 
 async def increment(request: Request, key: str, amount: float = 1):
     redis = request.app.state.redis
-    await redis.incrbyfloat(f"siqg:metrics:{key}", amount)
+    await redis.incrbyfloat(f"argus:metrics:{key}", amount)
 
 async def record_latency(request: Request, latency_ms: float):
     redis = request.app.state.redis
     # Keep last 1000 latency values for percentile calculation
     pipe = redis.pipeline()
-    pipe.lpush("siqg:metrics:latency_samples", latency_ms)
-    pipe.ltrim("siqg:metrics:latency_samples", 0, 999)
+    pipe.lpush("argus:metrics:latency_samples", latency_ms)
+    pipe.ltrim("argus:metrics:latency_samples", 0, 999)
     await pipe.execute()
 
 async def get_live_metrics(redis) -> dict:
     keys = [
-        "siqg:metrics:requests_total",
-        "siqg:metrics:cache_hits",
-        "siqg:metrics:cache_misses",
-        "siqg:metrics:rate_limit_hits",
-        "siqg:metrics:slow_queries",
-        "siqg:metrics:errors",
+        "argus:metrics:requests_total",
+        "argus:metrics:cache_hits",
+        "argus:metrics:cache_misses",
+        "argus:metrics:rate_limit_hits",
+        "argus:metrics:slow_queries",
+        "argus:metrics:errors",
     ]
     values = await redis.mget(*keys)
     metrics = {k.split(":")[-1]: float(v or 0) for k, v in zip(keys, values)}
 
     # Latency percentiles
-    samples = await redis.lrange("siqg:metrics:latency_samples", 0, -1)
+    samples = await redis.lrange("argus:metrics:latency_samples", 0, -1)
     if samples:
         sorted_samples = sorted(float(s) for s in samples)
         n = len(sorted_samples)
@@ -1568,7 +1568,7 @@ async def send_alert(event_type: str, trace_id: str, user_id: str, message: str,
 
     payload = {
         "embeds": [{
-            "title": f"SIQG Alert: {event_type}",
+            "title": f"Argus Alert: {event_type}",
             "description": message,
             "color": _color_for_event(event_type),
             "fields": [
@@ -1604,10 +1604,10 @@ from fastapi import Request
 
 async def record_table_access(request: Request, table: str):
     redis = request.app.state.redis
-    await redis.zincrby("siqg:heatmap:tables", 1, table)
+    await redis.zincrby("argus:heatmap:tables", 1, table)
 
 async def get_heatmap(redis) -> list:
-    entries = await redis.zrevrange("siqg:heatmap:tables", 0, -1, withscores=True)
+    entries = await redis.zrevrange("argus:heatmap:tables", 0, -1, withscores=True)
     return [{"table": name, "query_count": int(score)} for name, score in entries]
 ```
 
@@ -1814,7 +1814,7 @@ class CircuitBreakerState:
     OPEN = "open"
     HALF_OPEN = "half_open"
 
-CB_KEY = "siqg:circuit_breaker"
+CB_KEY = "argus:circuit_breaker"
 
 async def get_state(redis) -> dict:
     data = await redis.get(CB_KEY)
@@ -2109,7 +2109,7 @@ if body.dry_run:
 ### Step 6.3 — Python SDK structure
 
 ```python
-# sdk/siqg/client.py
+# sdk/argus/client.py
 import httpx
 from typing import Optional
 
@@ -2163,7 +2163,7 @@ class Gateway:
 ```
 
 ```python
-# sdk/siqg/cli.py
+# sdk/argus/cli.py
 import typer
 from .client import Gateway
 
@@ -2172,11 +2172,11 @@ _gw: Gateway = None
 
 @app.command()
 def login(url: str, username: str, password: str):
-    """Log in and save token to ~/.siqg_token"""
+    """Log in and save token to ~/.argus_token"""
     gw = Gateway(url).login(username, password)
     token = gw._headers.get("Authorization", "").split(" ")[-1]
     from pathlib import Path
-    Path("~/.siqg_token").expanduser().write_text(f"{url}\n{token}")
+    Path("~/.argus_token").expanduser().write_text(f"{url}\n{token}")
     typer.echo("Logged in successfully")
 
 @app.command()
@@ -2195,9 +2195,9 @@ def status():
 
 def _load_gateway() -> Gateway:
     from pathlib import Path
-    token_file = Path("~/.siqg_token").expanduser()
+    token_file = Path("~/.argus_token").expanduser()
     if not token_file.exists():
-        typer.echo("Not logged in. Run: siqg login <url> <username> <password>")
+        typer.echo("Not logged in. Run: argus login <url> <username> <password>")
         raise typer.Exit(1)
     url, token = token_file.read_text().strip().split("\n")
     return Gateway(url, jwt_token=token)
@@ -2226,9 +2226,9 @@ jobs:
    postgres:
     image: postgres:15-alpine
     env:
-     POSTGRES_USER: siqg
-     POSTGRES_PASSWORD: siqg
-     POSTGRES_DB: siqg
+     POSTGRES_USER: argus
+     POSTGRES_PASSWORD: argus
+     POSTGRES_DB: argus
     options: >-
      --health-cmd pg_isready
      --health-interval 10s
@@ -2263,8 +2263,8 @@ jobs:
 
    - name: Run tests with coverage
      env:
-      DB_PRIMARY_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
-      DB_REPLICA_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
+      DB_PRIMARY_URL: postgresql+asyncpg://argus:argus@localhost:5432/argus
+      DB_REPLICA_URL: postgresql+asyncpg://argus:argus@localhost:5432/argus
       REDIS_URL: redis://localhost:6379/0
       SECRET_KEY: test-secret-key
       ENCRYPTION_KEY: 12345678901234567890123456789012
@@ -2448,9 +2448,9 @@ curl -X POST http://localhost:8000/api/v1/query \
 
 # 4. SDK
 pip install -e ./sdk
-siqg login http://localhost:8000 admin admin123
-siqg query "SELECT COUNT(*) FROM users"
-siqg status
+argus login http://localhost:8000 admin admin123
+argus query "SELECT COUNT(*) FROM users"
+argus status
 
 # 5. CI
 git push origin main

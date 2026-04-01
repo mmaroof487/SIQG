@@ -45,9 +45,9 @@ async def add_ip_rule(
     redis = request.app.state.redis
 
     if payload.rule_type == "allow":
-        await redis.sadd("ip:allowlist", payload.ip_address)
+        await redis.sadd("argus:ip:allowlist", payload.ip_address)
     else:
-        await redis.sadd("ip:blocklist", payload.ip_address)
+        await redis.sadd("argus:ip:blocklist", payload.ip_address)
 
     logger.info(f"IP rule added: {payload.ip_address} {payload.rule_type}")
 
@@ -63,8 +63,8 @@ async def remove_ip_rule(
     """Remove IP rule from both lists."""
     redis = request.app.state.redis
 
-    await redis.srem("ip:allowlist", ip_address)
-    await redis.srem("ip:blocklist", ip_address)
+    await redis.srem("argus:ip:allowlist", ip_address)
+    await redis.srem("argus:ip:blocklist", ip_address)
 
     logger.info(f"IP rule removed: {ip_address}")
 
@@ -196,8 +196,8 @@ async def get_slow_queries(limit: int = 50, admin=Depends(require_admin)):
 async def budget_usage(request: Request, user=Depends(require_admin)):
     redis = request.app.state.redis
     today = datetime.utcnow().date().isoformat()
-    # Scan for keys matching siqg:budget:*:{today}
-    pattern = f"siqg:budget:*:*{today}*"
+    # Scan for keys matching argus:budget:*:{today}
+    pattern = f"argus:budget:*:*{today}*"
     keys = await redis.keys(pattern)
     
     if not keys:
@@ -207,7 +207,7 @@ async def budget_usage(request: Request, user=Depends(require_admin)):
     budgets = []
     from config import settings
     for key, val in zip(keys, values):
-        # key format: siqg:budget:{user_id}:{date}
+        # key format: argus:budget:{user_id}:{date}
         parts = key.split(":")
         if len(parts) >= 4:
             user_id = parts[2]

@@ -13,7 +13,7 @@ async def test_record_table_access():
     from middleware.observability.heatmap import record_table_access
 
     await record_table_access(request, "users")
-    redis.zincrby.assert_called_once_with("siqg:heatmap:tables", 1, "users")
+    redis.zincrby.assert_called_once_with("argus:heatmap:tables", 1, "users")
 
 
 @pytest.mark.asyncio

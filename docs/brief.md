@@ -195,7 +195,7 @@ Honeypot table detection — any query referencing a configured fake table (e.g.
 
 Query fingerprinting normalises SQL by replacing literal values with placeholders — `WHERE id = 42` becomes `WHERE id = ?`. A SHA-256 hash of the fingerprint plus the user's role forms the cache key. Role is included in the key because admin and readonly users receive different data (different masking applied).
 
-Redis caching stores query results as JSON with a configurable TTL (default 60 seconds). Cache keys are tagged by table using Redis sets (`siqg:cache_tags:{table}`). On any INSERT or UPDATE, the affected table's tag set is scanned and all associated cache keys are deleted. This provides precise multi-table cache invalidation — only queries touching the modified table are evicted.
+Redis caching stores query results as JSON with a configurable TTL (default 60 seconds). Cache keys are tagged by table using Redis sets (`argus:cache_tags:{table}`). On any INSERT or UPDATE, the affected table's tag set is scanned and all associated cache keys are deleted. This provides precise multi-table cache invalidation — only queries touching the modified table are evicted.
 
 Cache hit ratio in testing: first query ~9ms, repeated query ~2ms. Cache invalidation verified — inserting into a table causes the next SELECT to miss cache and fetch fresh data.
 
@@ -249,7 +249,7 @@ Redis metric counters — `INCR` operations maintain cumulative counters for: `r
 
 Live metrics endpoint (`GET /api/v1/metrics/live`) — serves all counters, percentiles, and cache hit ratio as a single JSON object. Unauthenticated — designed for dashboard polling. React frontend polls this every 5 seconds.
 
-Table access heat map — every query execution calls `ZINCRBY` on `siqg:heatmap:tables` with the table name as the member. The heatmap endpoint returns tables ranked by query count using `ZREVRANGE`.
+Table access heat map — every query execution calls `ZINCRBY` on `argus:heatmap:tables` with the table name as the member. The heatmap endpoint returns tables ranked by query count using `ZREVRANGE`.
 
 Webhook alerts — async HTTP POST to a configurable Discord or Slack webhook URL on: slow query detection, anomaly flag, honeypot hit, rate limit breach, circuit breaker open. Payload uses Discord embed format with colour coding by event type. Failures are caught and silently discarded — alerts never crash the main request flow.
 

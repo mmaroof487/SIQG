@@ -19,7 +19,7 @@ async def check_cache(
     """
     redis = request.app.state.redis
     fingerprint = fingerprint_query(query)
-    cache_key = f"siqg:cache:{fingerprint}:{role}"
+    cache_key = f"argus:cache:{fingerprint}:{role}"
 
     try:
         cached_result = await redis.get(cache_key)
@@ -54,8 +54,8 @@ async def write_cache(
     # Extract affected tables
     tables = extract_tables_from_query(query)
 
-    # Cache key: siqg:cache:{fingerprint}:{role}
-    cache_key = f"siqg:cache:{fingerprint}:{role}"
+    # Cache key: argus:cache:{fingerprint}:{role}
+    cache_key = f"argus:cache:{fingerprint}:{role}"
 
     try:
         # Store result
@@ -67,7 +67,7 @@ async def write_cache(
 
         # Tag cache key with each table for invalidation
         for table in tables:
-            tag_key = f"siqg:cache_tags:{table}"
+            tag_key = f"argus:cache_tags:{table}"
             await redis.sadd(tag_key, cache_key)
             # Set TTL on tag key as well
             await redis.expire(tag_key, ttl * 2)  # 2x TTL for cleanup
@@ -89,7 +89,7 @@ async def invalidate_table_cache(
     redis = request.app.state.redis
 
     for table in table_names:
-        tag_key = f"siqg:cache_tags:{table}"
+        tag_key = f"argus:cache_tags:{table}"
         try:
             # Use SCAN to efficiently iterate over cache keys without loading all at once
             cursor = 0

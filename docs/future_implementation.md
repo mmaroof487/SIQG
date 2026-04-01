@@ -1,4 +1,4 @@
-# 📦 SIQG / ARGUS – FEATURE BACKLOG
+# 📦 Argus / ARGUS – FEATURE BACKLOG
 
 > A structured backlog of features for future development, prioritized for maximum impact, feasibility, and interview value.
 

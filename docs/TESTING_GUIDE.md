@@ -1,4 +1,4 @@
-# SIQG Testing Guide (Phases 1-4)
+# Argus Testing Guide (Phases 1-4)
 
 ## Quick Start
 The fastest way to verify the entire system (Security, Performance, and Intelligence layers) is to use the integrated test orchestration script:

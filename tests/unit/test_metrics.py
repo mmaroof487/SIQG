@@ -13,7 +13,7 @@ async def test_increment_counter():
     from middleware.observability.metrics import increment
 
     await increment(request, "requests_total")
-    redis.incrbyfloat.assert_called_once_with("siqg:metrics:requests_total", 1)
+    redis.incrbyfloat.assert_called_once_with("argus:metrics:requests_total", 1)
 
 
 @pytest.mark.asyncio
@@ -26,7 +26,7 @@ async def test_increment_counter_custom_amount():
     from middleware.observability.metrics import increment
 
     await increment(request, "errors", 5)
-    redis.incrbyfloat.assert_called_once_with("siqg:metrics:errors", 5)
+    redis.incrbyfloat.assert_called_once_with("argus:metrics:errors", 5)
 
 
 @pytest.mark.asyncio
@@ -44,8 +44,8 @@ async def test_record_latency_uses_pipeline():
     from middleware.observability.metrics import record_latency
 
     await record_latency(request, 42.5)
-    pipe.lpush.assert_called_once_with("siqg:metrics:latency_samples", 42.5)
-    pipe.ltrim.assert_called_once_with("siqg:metrics:latency_samples", 0, 999)
+    pipe.lpush.assert_called_once_with("argus:metrics:latency_samples", 42.5)
+    pipe.ltrim.assert_called_once_with("argus:metrics:latency_samples", 0, 999)
     pipe.execute.assert_called_once()
 
 

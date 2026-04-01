@@ -13,8 +13,8 @@
 2. **Redis Cache** (`middleware/performance/cache.py`)
    - ✅ True database bypass: Excludes Postgres entirely on Cache HITs by serializing analysis metadata inside Redis
    - ✅ Stores/retrieves query results with TTL (default 60 seconds)
-   - ✅ Cache key format: `siqg:cache:{fingerprint}:{role}`
-   - ✅ Table-tagged invalidation: `siqg:cache_tags:{table}`
+   - ✅ Cache key format: `argus:cache:{fingerprint}:{role}`
+   - ✅ Table-tagged invalidation: `argus:cache_tags:{table}`
    - ✅ Automatic purge on INSERT/UPDATE/DELETE
    - ✅ Role-aware caching (same query, different roles = separate cache keys)
    - ✅ Integrated into 4-layer pipeline
@@ -35,7 +35,7 @@
 
 5. **Budget Tracking** (`middleware/performance/budget.py`)
    - ✅ Enforces per-user daily cost budget (default: 50,000 units)
-   - ✅ Tracks usage in Redis with key: `siqg:budget:{user_id}:{YYYY-MM-DD}`
+   - ✅ Tracks usage in Redis with key: `argus:budget:{user_id}:{YYYY-MM-DD}`
    - ✅ Resets at midnight UTC each day
    - ✅ Returns 429 error if query would exceed remaining budget
    - ✅ Fixed: Corrected TTL calculation for next day's midnight UTC
@@ -173,7 +173,7 @@ curl -s -X POST http://localhost:8000/api/v1/query/execute \
   -d '{"query":"SELECT COUNT(*) as count FROM users"}' | jq '{cached, latency_ms}'
 
 # Verify cache entry exists
-docker-compose exec redis redis-cli KEYS 'siqg:cache:*'
+docker-compose exec redis redis-cli KEYS 'argus:cache:*'
 # Expected: At least one cache key
 
 # Write to users table (should invalidate users cache)
@@ -260,23 +260,23 @@ curl -s -X POST http://localhost:8000/api/v1/query/execute \
 
 ```bash
 # Check all cache keys
-docker-compose exec redis redis-cli KEYS 'siqg:cache:*' | head -20
+docker-compose exec redis redis-cli KEYS 'argus:cache:*' | head -20
 
 # Example output:
-# siqg:cache:a1b2c3d4e5f6:user123:admin
-# siqg:cache:b2c3d4e5f6g7:user123:readonly
-# siqg:cache:c3d4e5f6g7h8:user456:guest
+# argus:cache:a1b2c3d4e5f6:user123:admin
+# argus:cache:b2c3d4e5f6g7:user123:readonly
+# argus:cache:c3d4e5f6g7h8:user456:guest
 
 # Check cache tag (invalidation tracking)
-docker-compose exec redis redis-cli KEYS 'siqg:cache_tags:*'
+docker-compose exec redis redis-cli KEYS 'argus:cache_tags:*'
 
 # Example output:
-# siqg:cache_tags:users
-# siqg:cache_tags:orders
-# siqg:cache_tags:products
+# argus:cache_tags:users
+# argus:cache_tags:orders
+# argus:cache_tags:products
 
 # View cache keys tagged with 'users' table
-docker-compose exec redis redis-cli SMEMBERS 'siqg:cache_tags:users'
+docker-compose exec redis redis-cli SMEMBERS 'argus:cache_tags:users'
 
 # Example output:
 # a1b2c3d4e5f6:user123:admin
@@ -288,25 +288,25 @@ docker-compose exec redis redis-cli SMEMBERS 'siqg:cache_tags:users'
 ```bash
 # Check budget keys for current date
 TODAYS_DATE=$(date +%Y-%m-%d)
-docker-compose exec redis redis-cli KEYS "siqg:budget:*:$TODAYS_DATE"
+docker-compose exec redis redis-cli KEYS "argus:budget:*:$TODAYS_DATE"
 
 # Example output:
-# siqg:budget:user123:2026-03-26
-# siqg:budget:user456:2026-03-26
+# argus:budget:user123:2026-03-26
+# argus:budget:user456:2026-03-26
 
 # Check current budget usage for a user
-docker-compose exec redis redis-cli GET "siqg:budget:user123:$TODAYS_DATE"
+docker-compose exec redis redis-cli GET "argus:budget:user123:$TODAYS_DATE"
 
 # Expected: A number (total cost units used today)
 # TTL should be until next midnight UTC
-docker-compose exec redis redis-cli TTL "siqg:budget:user123:$TODAYS_DATE"
+docker-compose exec redis redis-cli TTL "argus:budget:user123:$TODAYS_DATE"
 ```
 
 #### 8. Verify PostgreSQL Audit Logs
 
 ```bash
 # Check audit log for queries executed
-docker-compose exec postgres psql -U postgres -d siqg -c "
+docker-compose exec postgres psql -U postgres -d argus -c "
   SELECT query, user_id, cost, latency_ms, cached, created_at
   FROM audit_log
   ORDER BY created_at DESC

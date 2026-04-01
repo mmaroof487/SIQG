@@ -1,6 +1,6 @@
 # PHASE 1: FOUNDATION — COMPLETE ✅
 
-**Queryx — Secure Intelligent Query Gateway**
+**Argus — Secure Intelligent Query Gateway**
 **Duration**: This Session
 **Status**: Ready for Testing
 **Target**: 3-minute demo with SELECT working, DROP blocked
@@ -169,7 +169,7 @@
 **gateway/middleware/performance/cache.py** (75 lines)
 
 - ✅ `check_cache()` — Look up query result in Redis
-  - Key: siqg:cache:{fingerprint}:{user_id}:{role}
+  - Key: argus:cache:{fingerprint}:{user_id}:{role}
   - Returns result if found, None otherwise
 - ✅ `write_cache()` — Store result in Redis with TTL
   - Stores result JSON

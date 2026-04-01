@@ -2,7 +2,7 @@
 from locust import HttpUser, task, between
 
 
-class QueryxUser(HttpUser):
+class ArgusUser(HttpUser):
     wait_time = between(0.5, 2)
 
     def on_start(self):

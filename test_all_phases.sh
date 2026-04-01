@@ -16,7 +16,7 @@ PHASE3_STATUS=0
 PHASE4_STATUS=0
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}   SIQG Full Phase Test Runner${NC}"
+echo -e "${BLUE}   Argus Full Phase Test Runner${NC}"
 echo -e "${BLUE}   (Phase 1 -> Phase 2 -> Phase 3 -> Phase 4)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 

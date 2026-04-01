@@ -27,12 +27,12 @@ async def check_circuit_breaker(request: Request) -> str:
     Returns: state
     """
     redis = request.app.state.redis
-    cb_state_key = "circuit_breaker:state"
+    cb_state_key = "argus:circuit_breaker:state"
     state = await redis.get(cb_state_key) or CircuitBreakerState.CLOSED
 
     # If OPEN, check if cooldown period has passed
     if state == CircuitBreakerState.OPEN:
-        opened_at = await redis.get("circuit_breaker:opened_at")
+        opened_at = await redis.get("argus:circuit_breaker:opened_at")
         if opened_at:
             opened_time = float(opened_at)
             elapsed = time.time() - opened_time
@@ -49,7 +49,7 @@ async def check_circuit_breaker(request: Request) -> str:
 
     # In HALF_OPEN, allow only one probe request at a time.
     if state == CircuitBreakerState.HALF_OPEN:
-        probe_key = "circuit_breaker:half_open_probe"
+        probe_key = "argus:circuit_breaker:half_open_probe"
         locked = await redis.set(probe_key, "1", ex=max(settings.query_timeout_seconds, 1) + 2, nx=True)
         if not locked:
             raise HTTPException(
@@ -63,15 +63,15 @@ async def check_circuit_breaker(request: Request) -> str:
 async def record_success(request: Request):
     """Record successful query execution. Reset failure count."""
     redis = request.app.state.redis
-    cb_state_key = "circuit_breaker:state"
-    cb_count_key = "circuit_breaker:failure_count"
+    cb_state_key = "argus:circuit_breaker:state"
+    cb_count_key = "argus:circuit_breaker:failure_count"
 
     # If HALF_OPEN, transition back to CLOSED
     state = await redis.get(cb_state_key) or CircuitBreakerState.CLOSED
     if state == CircuitBreakerState.HALF_OPEN:
         await redis.delete(cb_state_key)  # Back to CLOSED (default)
         await redis.delete(cb_count_key)
-        await redis.delete("circuit_breaker:half_open_probe")
+        await redis.delete("argus:circuit_breaker:half_open_probe")
         logger.info("Circuit breaker: HALF_OPEN → CLOSED (recovery successful)")
         return
 
@@ -82,15 +82,15 @@ async def record_success(request: Request):
 async def record_failure(request: Request):
     """Record failed query execution. Increment failure count and check threshold."""
     redis = request.app.state.redis
-    cb_state_key = "circuit_breaker:state"
-    cb_count_key = "circuit_breaker:failure_count"
+    cb_state_key = "argus:circuit_breaker:state"
+    cb_count_key = "argus:circuit_breaker:failure_count"
     state = await redis.get(cb_state_key) or CircuitBreakerState.CLOSED
 
     # HALF_OPEN -> OPEN immediately on any failure.
     if state == CircuitBreakerState.HALF_OPEN:
         await redis.setex(cb_state_key, settings.circuit_cooldown_seconds * 10, CircuitBreakerState.OPEN)
-        await redis.setex("circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
-        await redis.delete("circuit_breaker:half_open_probe")
+        await redis.setex("argus:circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
+        await redis.delete("argus:circuit_breaker:half_open_probe")
         if settings.webhook_url:
             from middleware.observability.webhooks import send_alert
             trace_id = getattr(request.state, "trace_id", "Unknown")
@@ -117,8 +117,8 @@ async def record_failure(request: Request):
         # Open circuit breaker
         logger.error(f"Circuit breaker OPEN: {count} >= {settings.circuit_failure_threshold} failures")
         await redis.setex(cb_state_key, settings.circuit_cooldown_seconds * 10, CircuitBreakerState.OPEN)
-        await redis.setex("circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
-        await redis.delete("circuit_breaker:half_open_probe")
+        await redis.setex("argus:circuit_breaker:opened_at", settings.circuit_cooldown_seconds * 10, str(time.time()))
+        await redis.delete("argus:circuit_breaker:half_open_probe")
         if settings.webhook_url:
             from middleware.observability.webhooks import send_alert
             trace_id = getattr(request.state, "trace_id", "Unknown")
