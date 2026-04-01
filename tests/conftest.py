@@ -2,6 +2,10 @@
 import sys
 import os
 from pathlib import Path
+import warnings
+
+# Suppress passlib crypt deprecation warning (not used in our code, internal passlib)
+warnings.filterwarnings("ignore", message=".*'crypt' is deprecated.*", category=DeprecationWarning)
 
 # Set test environment variables before importing app
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests-only")

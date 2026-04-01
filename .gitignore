@@ -30,6 +30,7 @@ env/
 *.swp
 *.swo
 *~
+.DS_Store
 
 .env
 !.env.example
@@ -48,6 +49,15 @@ dump.rdb
 
 # Frontend
 node_modules/
+dist/
+build/
+
+# IDE
+*.code-workspace
+
+# OS
+Thumbs.db
+.DS_Store
 frontend/dist/
 frontend/build/
 *.log

@@ -12,8 +12,8 @@ import json
 logger = get_logger(__name__)
 security = HTTPBearer(auto_error=False)
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing context - bcrypt only (no deprecated schemes)
+pwd_context = CryptContext(schemes=["bcrypt"])
 
 
 def create_jwt(user_id: str, role: str) -> str:

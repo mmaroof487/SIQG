@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import Optional, Any, List, Dict
 import uuid
 import asyncpg
+import asyncio
 import time
 import json
 from config import settings
@@ -31,6 +32,7 @@ from middleware.observability.webhooks import send_alert
 from middleware.execution.analyzer import run_explain_analyze, generate_index_suggestions, log_slow_query
 from middleware.execution.executor import execute_with_timeout
 from middleware.observability.audit import write_audit_log
+from utils.honeypot import check_honeypot
 from models import AuditLog
 from utils.db import PrimarySession
 from utils.logger import get_logger
@@ -76,7 +78,7 @@ async def execute_query(
 
     trace_id = str(uuid.uuid4())
     request.state.trace_id = trace_id
-    
+
     request_start_time = time.time()
 
     query_type = "UNKNOWN"
@@ -108,6 +110,10 @@ async def execute_query(
         # Check RBAC permissions
         await check_rbac(request)
         logger.debug(f"[{trace_id}] ✅ RBAC check passed")
+
+        # Check honeypot tables (Phase 5)
+        await check_honeypot(request, payload.query)
+        logger.debug(f"[{trace_id}] ✅ Honeypot check passed")
 
         # === LAYER 2: PERFORMANCE OPTIMIZATIONS ===
         # Determine query type (SELECT, INSERT, etc.)
@@ -202,6 +208,7 @@ async def execute_query(
             )
 
         # === LAYER 3: EXECUTION ===
+        # Circuit breaker and retry logic handled inside execute_with_timeout
         start_time = time.time()
         rows_dict = []
         rows, _ = await execute_with_timeout(request, execution_query)
@@ -218,7 +225,6 @@ async def execute_query(
         # **Cache Invalidation** - For INSERT/UPDATE/DELETE, invalidate affected tables
         # Fire-and-forget: don't block the response waiting for cache cleanup
         if not is_select and affected_tables:
-            import asyncio
             asyncio.create_task(invalidate_table_cache(request, affected_tables))
             logger.debug(f"[{trace_id}] ✅ Cache invalidation scheduled for tables: {affected_tables}")
 
@@ -280,8 +286,8 @@ async def execute_query(
                 extra={"query": clean_query[:50]}
             )
 
-        # Log to audit log
-        await write_audit_log(
+        # Log to audit log (fire-and-forget via asyncio task)
+        asyncio.create_task(write_audit_log(
             trace_id=trace_id,
             user_id=request.state.user_id,
             role=request.state.role,
@@ -292,7 +298,8 @@ async def execute_query(
             cached=cached_result,
             slow=is_slow,
             anomaly_flag=getattr(request.state, "anomaly_flag", False),
-        )
+        ))
+        logger.debug(f"[{trace_id}] ✅ Audit log scheduled")
 
         # Cache store - Store results in cache for future queries (with table tags)
         if is_select and not is_slow:
@@ -372,7 +379,7 @@ async def execute_query(
         # Final latency and metrics
         latency_ms = (time.time() - request_start_time) * 1000
         await record_latency(request, latency_ms)
-        
+
         # Heatmap updates inside finally to capture all tables extracted
         try:
             if 'affected_tables' in locals() and affected_tables:

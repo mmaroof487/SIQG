@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run Phase 1 -> Phase 2 -> Phase 3 verification in sequence efficiently.
+# Run Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5 verification in sequence efficiently.
 # Usage: bash test_all_phases.sh
 
 set -u
@@ -14,10 +14,11 @@ PHASE1_STATUS=0
 PHASE2_STATUS=0
 PHASE3_STATUS=0
 PHASE4_STATUS=0
+PHASE5_STATUS=0
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}   Argus Full Phase Test Runner${NC}"
-echo -e "${BLUE}   (Phase 1 -> Phase 2 -> Phase 3 -> Phase 4)${NC}"
+echo -e "${BLUE}   (Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -91,6 +92,16 @@ else
   echo -e "${RED}❌ Phase 4 failed${NC}\n"
 fi
 
+echo -e "${YELLOW}Running Phase 5 checks (Security Hardening)...${NC}"
+echo -e "${YELLOW}Running Phase 5 unit tests...${NC}"
+if "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/unit/test_encryptor.py tests/unit/test_circuit_breaker.py tests/unit/test_executor.py -v --tb=short'; then
+  PHASE5_STATUS=0
+  echo -e "${GREEN}✅ Phase 5 unit tests passed${NC}\n"
+else
+  PHASE5_STATUS=1
+  echo -e "${RED}❌ Phase 5 unit tests failed${NC}\n"
+fi
+
 echo -e "${YELLOW}Final cleanup...${NC}"
 "${DC[@]}" down -v >/dev/null 2>&1 || true
 
@@ -122,7 +133,13 @@ else
   echo -e "Phase 4: ${RED}FAIL${NC}"
 fi
 
-TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS + PHASE4_STATUS))
+if [ $PHASE5_STATUS -eq 0 ]; then
+  echo -e "Phase 5: ${GREEN}PASS${NC}"
+else
+  echo -e "Phase 5: ${RED}FAIL${NC}"
+fi
+
+TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS + PHASE4_STATUS + PHASE5_STATUS))
 echo ""
 if [ $TOTAL_FAILS -eq 0 ]; then
   echo -e "${GREEN}✅ All phases passed${NC}"

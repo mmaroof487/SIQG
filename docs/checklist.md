@@ -1,5 +1,7 @@
 # Argus — Implementation Correctness Checklist
 
+**Status:** April 1, 2026 — All items PASS ✅ (Phase 5 Complete)
+
 Paste this into Opus when you want a full audit of your implementation.
 For each item, show the relevant code and Opus will tell you if it's correct,
 broken, or missing.
@@ -331,7 +333,6 @@ Opus should respond to each section with:
 
 - [x] NEVER pass raw SQL directly into SQLAlchemy text() without escaping colons
       Use `.replace(':', '\\:')` so native Postgres casting (`::uuid`) or JSON operators don't cause StatementError bind parameter exceptions.
-
 
 - [x] NEVER let circuit breaker state live in a Python global/module variable
       Must be in Redis — global state is lost on every container restart.

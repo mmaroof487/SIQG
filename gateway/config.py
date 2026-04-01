@@ -1,5 +1,6 @@
-"""Gateway configuration using pydantic-settings."""
+"""Gateway configuration using pydantic-settings (Pydantic v2+)."""
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from typing import List
 import os
 from utils.logger import get_logger
@@ -8,6 +9,7 @@ logger = get_logger(__name__)
 
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(env_file=".env", case_sensitive=False)
     """Application settings loaded from environment variables."""
 
     # === APP ===
@@ -103,10 +105,6 @@ class Settings(BaseSettings):
                 "readonly": {"tables": "*", "columns": "*", "operations": ["SELECT"]},
                 "guest": {"tables": ["public_data"], "columns": ["id", "name", "created_at"], "operations": ["SELECT"]}
             }
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
 
 settings = Settings()

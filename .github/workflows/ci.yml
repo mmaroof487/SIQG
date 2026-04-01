@@ -52,8 +52,10 @@ jobs:
       - name: Run tests
         run: |
           cd gateway
-          pytest ../tests/ -v --cov=. --cov-report=term-missing --cov-report=xml
+          pytest ../tests/ -v --cov=. --cov-report=term-missing --cov-report=xml --cov-report=html
         env:
+          SECRET_KEY: "ci-test-secret-key-do-not-use-in-production"
+          ENCRYPTION_KEY: "ci-test-encryption-key-32-chars!!"
           DB_PRIMARY_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
           DB_REPLICA_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
           REDIS_URL: redis://localhost:6379/0
