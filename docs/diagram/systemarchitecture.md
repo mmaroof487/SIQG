@@ -1,9 +1,11 @@
 # System Architecture — Complete (Phase 1-6)
 
 ## Overview
+
 Argus 6-layer pipeline with all middleware stacks integrated. Includes Phase 6 AI layer endpoints.
 
 **Layers:**
+
 - Layer 1: Security (Auth, Brute Force, RBAC, Honeypot)
 - Layer 2: Performance (Cache, Cost Estimation, Budget)
 - Layer 3: Execution (Circuit Breaker, Encryption, Routing)
