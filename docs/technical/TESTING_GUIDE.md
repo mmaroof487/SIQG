@@ -302,7 +302,7 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 
 ### Test 3: Honeypot Detection
 
-Test honeypot table detection and IP blocking:
+Test honeypot table detection and IP blocking (24-hour auto-expiration):
 
 ```bash
 # Query honeypot table returns 403

@@ -26,7 +26,7 @@ flowchart TD
     G -->|no| H{Query type allowed?}
     H -->|no| H1([400 Type Not Allowed])
     H -->|yes| I{Honeypot table?}
-    I -->|yes| I1([403 + IP Banned + Alert])
+    I -->|yes| I1([403 + IP Banned (24h TTL) + Alert])
     I -->|no| J{RBAC pass?}
     J -->|no| J1([403 Table/Column Denied])
     J -->|yes| K[Fingerprint + Hash]

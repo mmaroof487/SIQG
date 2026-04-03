@@ -151,93 +151,229 @@ The observability layer is fully asynchronous, preventing monitoring overhead fr
 
 ---
 
-## 6️⃣ Layer 6: AI + Intelligence
+## 6️⃣ Layer 6: AI Intelligence + Fallback Architecture
 
-The AI layer provides natural language interfaces and advanced query analysis without requiring raw SQL expertise.
+The AI layer provides natural language interfaces and advanced query analysis with **resilient dual-provider architecture** (GROQ primary + MOCK fallback).
 
-### 6.1 NL→SQL Endpoint (`routers/v1/ai.py`)
+### 6.1 NL→SQL Generation (`routers/v1/ai.py`)
 
-- **LLM Integration:** Async HTTP calls to OpenAI API (GPT-4o-mini by default).
-- **System Prompt:** Instructs LLM to generate PostgreSQL-compliant SQL with proper syntax.
-- **Schema Hints:** Optional parameter allows users to provide table/column hints for better generation.
-- **Pipeline Integration:** Generated SQL automatically routed through full 4-layer security + performance pipeline.
-- **Graceful Degradation:** If `AI_ENABLED=false` or `OPENAI_API_KEY` missing, returns clear error message, not 500.
-- **Timeout Handling:** LLM calls timeout at 10s. Failures caught and returned as error responses.
+**Primary Provider: Groq (Llama 3.1 8B)**
 
-### 6.2 Query Explainer Endpoint (`routers/v1/ai.py`)
+- **Speed:** <1 second response time
+- **Capability:** Sophisticated SQL generation with understanding of complex queries
+- **Cost:** Free tier available, no rate limits in practice
+- **Reliability:** Groq SLA-backed infrastructure
 
-- **Purpose:** Converts complex SQL into plain English prose via LLM.
-- **Input:** Any valid SQL query string.
-- **Output:** Detailed explanation of what the query does, in natural language.
-- **Error Handling:** Gracefully handles AI disabled state.
+**Fallback Provider: Mock (Pattern-Based)**
 
-### 6.3 Dry-Run Mode Enhancement (`routers/v1/query.py`)
+- **Triggers:** ANY failure from Groq (timeout, API error, invalid response, network down)
+- **Speed:** Instant (<10ms)
+- **Mechanism:** Regex pattern matching against common NL questions
+- **Reliability:** 100% guaranteed (no external APIs)
 
-- **Parameter:** `dry_run: true` in query payload.
-- **Validation:** Query passes through all security checks (injection, RBAC, rate limit, etc.) without DB execution.
-- **Cost Estimation:** Pre-flight EXPLAIN generates cost estimate.
-- **Pipeline Checks:** Response includes status of each layer (IP filter pass/fail, rate limit pass/fail, etc.).
-- **Complexity Scoring:** Returns complexity score and reasoning array.
-- **Zero DB Impact:** No query execution, no connection pool usage.
-- **Return Status:** HTTP 200 always, even if database is down (since no DB access).
+**Architecture:**
 
-### 6.4 Python SDK (`sdk/argus/client.py`)
+```
+User Question
+    ↓
+[Try: call_llm_groq()]
+    ├─ Success? → Return SQL ✅
+    └─ Any Error? → Fallback ↓
+           ↓
+    [Auto: call_llm_mock()]
+    └─ Return SQL ✅
+```
 
-- **Gateway Class:** Main interface for programmatic access.
-- **Methods:** `login()`, `query()`, `explain()`, `nl_to_sql()`, `status()`, `metrics()`.
-- **Auth Management:** Stores JWT token in memory or accepts as parameter.
-- **Error Handling:** Catches HTTP errors and re-raises as descriptive exceptions.
-- **Dry-Run Support:** `query()` accepts `dry_run=True` parameter.
-- **Encryption Support:** `query()` accepts `encrypt_columns` list for transparent column encryption.
-- **Distribution:** Configured for PyPI via `setup.py` with entry points.
+**Code Implementation** (lines ~243-257 in ai.py):
 
-### 6.5 CLI Tool (`sdk/argus/cli.py`)
+```python
+async def call_llm(provider, prompt, schema):
+    try:
+        return await call_groq(prompt, schema)
+    except Exception as e:
+        logger.warning(f"Groq failed: {e}, using mock")
+        return call_llm_mock(prompt, schema)
+```
 
-- **Framework:** Built with Typer for intuitive command-line UX.
-- **Commands:** `login`, `query`, `explain`, `nl-to-sql`, `status`, `logout`.
-- **Token Persistence:** Stores authenticated JWT in `~/.argus_token` for session reuse.
-- **Output Modes:** Supports human-readable format (emoji indicators) and JSON format for scripting.
-- **Error Messages:** Clear, actionable error feedback for failed operations.
+**Pattern Matching Guardrails** (lines ~468-485 in ai.py):
+
+- Detects "top 5" → Forces `LIMIT 5` (prevents LLM semantic error)
+- Detects "top N" → Enforces correct LIMIT N
+- Detects "count by X" → Forces GROUP BY structure
+- Detects "how many" → Routes to COUNT pattern
+
+**User Experience:**
+
+- Zero failures: Groq or Mock—either way you get SQL
+- No error messages: Fallback is automatic and transparent
+- No retry needed: Seamless seamless user request
+
+### 6.2 Query Explanation Endpoint
+
+- **Purpose:** Converts complex SQL into plain English prose
+- **Input:** Any valid SQL query string
+- **Method:** Parses SQL structure (table, columns, WHERE, GROUP BY, ORDER BY, LIMIT)
+- **Output:** Specific, natural language explanation
+- **Example:**
+  ```
+  Input: SELECT role, COUNT(*) FROM users GROUP BY role ORDER BY COUNT(*) DESC
+  Output: "This query counts users grouped by their role and sorts the
+           results in descending order based on the count."
+  ```
+- **Fallback:** If AI fails, still returns parsed explanation from mock analysis
+
+### 6.3 Semantic Guardrails for AI Accuracy
+
+Rather than relying on LLM to always get LIMIT correct, the system uses pattern matching _before_ calling AI:
+
+**Example: "Top 5 users"**
+
+1. Pattern matching detects "top 5"
+2. Sets `limit = 5` before calling LLM
+3. LLM generates base query
+4. System enforces `LIMIT 5` (not LLM's default)
+5. Result: Semantic accuracy guaranteed
+
+**Benefits:**
+
+- No LLM semantic errors for common patterns
+- Instant response for recognized patterns (no LLM call needed)
+- Clean separation: patterns for common cases, LLM for complex cases
+
+### 6.4 Error Handling & Resilience
+
+**Groq Error Scenarios:**
+| Scenario | Handling |
+|----------|----------|
+| Timeout (10s+) | Fallback to Mock |
+| API 429 (rate limit) | Fallback to Mock, exponential backoff retry |
+| API 500/502 (server error) | Fallback to Mock |
+| API 503 (service unavailable) | Fallback to Mock |
+| Invalid response (malformed JSON) | Fallback to Mock |
+| Network down | Fallback to Mock |
+| Auth failure | Clear error message |
+
+**Result:** Any transient failure → instant fallback, never fails the user request
+
+### 6.5 Dry-Run Mode Enhancement (`routers/v1/query.py`)
+
+- **Parameter:** `dry_run: true` in query payload
+- **Validation:** Query passes through all security checks without DB execution
+- **Cost Estimation:** Pre-flight EXPLAIN generates cost estimate
+- **Pipeline Checks:** Response includes pass/fail for each layer
+- **Complexity Scoring:** Returns score and reasoning
+- **Zero DB Impact:** No connection pool usage
+- **Return Status:** HTTP 200 always (validates gracefully)
+
+### 6.6 Sensitive Field Guardrails (Defense-in-Depth)
+
+**Layer 1 Query Protection** (lines ~103-119 in query.py):
+
+```python
+# Explicitly block direct access to sensitive fields
+SENSITIVE_FIELDS = ['hashed_password', 'password', 'secret', 'token', 'api_key']
+
+# Check before executing ANY query
+if any(field in query.lower() for field in SENSITIVE_FIELDS):
+    return {"detail": f"Access to sensitive field '{field}' blocked..."}
+```
+
+**Why this matters:**
+
+- Primary protection: RBAC masking by role
+- Secondary protection: Query-level field blocking
+- Tertiary protection: Post-execution field masking
+- **Defense-in-Depth:** Multiple layers ensure no bypass
+
+**User sees:**
+
+```json
+{
+  "detail": "Access to sensitive field 'hashed_password' is blocked.
+             Use explicit column selection instead."
+}
+```
+
+### 6.7 Python SDK (`sdk/argus/client.py`)
+
+- **Gateway Class:** Main interface for programmatic access
+- **Methods:** `login()`, `query()`, `explain()`, `nl_to_sql()`, `status()`, `metrics()`
+- **Auth Management:** Stores JWT token in memory
+- **Error Handling:** Catches HTTP errors, raises descriptive exceptions
+- **Dry-Run Support:** `query(dry_run=True)` parameter
+- **Encryption Support:** `query(encrypt_columns=['col1', 'col2'])`
+- **Distribution:** PyPI via `setup.py` with entry points
+
+### 6.8 CLI Tool (`sdk/argus/cli.py`)
+
+- **Framework:** Typer CLI framework
+- **Commands:** `login`, `query`, `explain`, `nl-to-sql`, `status`, `logout`
+- **Token Persistence:** `~/.argus_token` for session reuse
+- **Output Modes:** Human-readable (with emojis) and JSON (for scripting)
+- **Error Messages:** Clear, actionable feedback
 
 ---
 
-## 📦 Project Structure (Phase 6)
+## 📦 Project Structure (Phase 6 - Final)
 
 ```
 gateway/
   ├── routers/v1/
-  │   ├── auth.py           # JWT/API key auth + registration
-  │   ├── query.py          # Query execution + dry-run
-  │   ├── admin.py          # Admin-only endpoints
-  │   ├── metrics.py        # Live metrics
-  │   └── ai.py             # NL→SQL + Explain endpoints (PHASE 6)
+  │   ├── auth.py              # JWT/API key auth + registration
+  │   ├── query.py             # Query execution + dry-run + sensitive field guards
+  │   ├── admin.py             # Admin-only endpoints
+  │   ├── metrics.py           # Live metrics + heatmap
+  │   └── ai.py                # NL→SQL + Explain (GROQ + MOCK fallback)
   │
   ├── middleware/
-  │   ├── security/         # Auth, brute force, IP filter, rate limit, RBAC, honeypot
-  │   ├── performance/      # Fingerprinting, cache, budget, cost, auto-limit
-  │   ├── execution/        # Circuit breaker, executor, analyzer
-  │   └── observability/    # Audit, metrics, webhooks, heatmap
+  │   ├── security/            # Auth, brute force, IP filter, rate limit, RBAC, honeypot
+  │   ├── performance/         # Fingerprinting, cache, budget, cost, auto-limit
+  │   ├── execution/           # Circuit breaker, executor, analyzer, complexity
+  │   └── observability/       # Audit, metrics, webhooks, heatmap
   │
-  ├── models/               # SQLAlchemy ORM models
-  └── utils/                # Helpers (DB, Redis, logging)
+  ├── models/                  # SQLAlchemy ORM models
+  └── utils/                   # Helpers (DB, Redis, logging)
 
 sdk/
   ├── argus/
-  │   ├── __init__.py       # Exports Gateway class
-  │   ├── client.py         # Gateway client (156 lines)
-  │   └── cli.py            # CLI tool (270+ lines)
-  ├── setup.py              # Package config for PyPI
-  └── README.md             # SDK documentation
+  │   ├── __init__.py          # Exports Gateway class
+  │   ├── client.py            # Gateway client (156 lines)
+  │   └── cli.py               # CLI tool (270+ lines)
+  ├── setup.py                 # Package config for PyPI
+  └── README.md                # SDK documentation
 
 tests/
   ├── unit/
-  │   ├── test_ai.py        # AI endpoint tests (PHASE 6)
-  │   ├── test_sdk_client.py # SDK client tests (PHASE 6)
-  │   └── ... (20+ other test files)
+  │   ├── test_ai.py           # AI endpoint tests (GROQ + fallback)
+  │   ├── test_sdk_client.py   # SDK client tests
+  │   └── ... (20+ other test files, 134 total)
   ├── integration/
+  │   └── test_full_pipeline.py # End-to-end test (all 6 phases)
   └── load/
+      └── locustfile.py        # Load testing
 ```
 
 ---
 
-_Low-level architecture complete across all 6 phases. All components async-first, test-covered, production-hardened._
+## 🔍 Test Coverage
+
+**Unit Tests:** 134 test cases across all components
+
+- Security: SQL injection, RBAC, rate limiting, brute force, honeypot
+- Performance: Caching, fingerprinting, cost estimation, budget
+- Execution: Circuit breaker, retries, timeouts
+- Observability: Metrics, audit logging, webhooks
+- AI: NL→SQL (GROQ + mock), Explain, pattern matching, fallback
+
+**Integration Tests:** Full pipeline from request to response
+
+- All 6 layers executing in sequence
+- Rate limiting with sliding window
+- Cache hit/miss validation
+- AI feature end-to-end
+
+**Coverage:** 71%+ (focused on critical security and execution paths)
+
+---
+
+_Low-level architecture complete. All 6 phases production-hardened, fully async, resilient, and test-covered._

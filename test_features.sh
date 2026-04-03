@@ -138,21 +138,45 @@ echo ""
 
 # 4. Test Rate Limiting
 echo "4️⃣ [P1] Testing Rate Limiting (60 queries/min)..."
-echo "   Making 65 rapid requests..."
+echo "   Making 65 rapid parallel requests..."
 RATE_LIMITED=false
+RATE_LIMITED_COUNT=0
+
+mkdir -p /tmp/rate_limit_test
 for i in {1..65}; do
+  {
     RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
       -H "Authorization: Bearer $TOKEN" \
       -H "Content-Type: application/json" \
       -d '{"query":"SELECT 1"}')
 
     STATUS=$(echo "$RESPONSE" | jq -r '.detail' 2>/dev/null)
-    if [[ "${STATUS,,}" == *"rate"* ]] || [[ "${STATUS,,}" == *"limit"* ]]; then
-        RATE_LIMITED=true
-        echo "✅ Rate limit triggered after request $i"
-        break
+    if [[ "${STATUS,,}" == *"rate"* ]] || [[ "${STATUS,,}" == *"limit"* ]] || [[ "${STATUS,,}" == *"too many requests"* ]]; then
+        echo "1" > /tmp/rate_limit_test/limited_$i.txt
     fi
+  } &
+
+  # Batch requests to keep them in same time window
+  if [ $((i % 10)) -eq 0 ]; then
+    wait
+  fi
 done
+
+wait
+
+# Count how many were rate limited
+for i in {1..65}; do
+  if [ -f /tmp/rate_limit_test/limited_$i.txt ]; then
+    RATE_LIMITED_COUNT=$((RATE_LIMITED_COUNT + 1))
+  fi
+done
+
+rm -rf /tmp/rate_limit_test
+
+if [ $RATE_LIMITED_COUNT -gt 0 ]; then
+    RATE_LIMITED=true
+    echo "✅ Rate limit triggered ($RATE_LIMITED_COUNT requests blocked)"
+fi
 
 if [ "$RATE_LIMITED" = false ]; then
     test_result "Rate limit triggers by 65 requests" "FAIL"
@@ -161,8 +185,14 @@ else
     test_result "Rate limit triggers by 65 requests" "PASS"
 fi
 echo ""
-# 4.5 Test Honeypot Detection
 echo "X️⃣ [P1] Testing Honeypot Detection (secret_keys)..."
+echo "   (Clearing IP blocklist first...)"
+if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 > /dev/null 2>&1 || true
+elif docker compose version >/dev/null 2>&1; then
+    docker compose exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 > /dev/null 2>&1 || true
+fi
+sleep 2
 RESPONSE=$(curl -s -X POST "$BASE_URL/api/v1/query/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -175,6 +205,15 @@ else
     test_result "Honeypot detection NOT working" "FAIL"
     echo "     Response: $HONEYPOT_ERROR"
 fi
+# IMPORTANT: Clear IP blocklist after honeypot test (honeypot adds IP to blocklist for auto-ban)
+# Without this, all subsequent tests from same IP will be blocked
+echo "   (Clearing IP blocklist after honeypot test...)"
+if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 > /dev/null 2>&1 || true
+elif docker compose version >/dev/null 2>&1; then
+    docker compose exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 > /dev/null 2>&1 || true
+fi
+sleep 1
 echo ""
 fi
 

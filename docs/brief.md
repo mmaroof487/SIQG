@@ -39,7 +39,7 @@ Every query is now checked, optimised, and logged. Nothing reaches the database 
 
 ## Architecture Overview
 
-Argus processes every incoming query through four sequential layers. Each layer must pass before the next begins. A failure at any layer returns an immediate, descriptive error response.
+Argus processes every incoming query through six sequential layers. Each layer must pass before the next begins. A failure at any layer returns an immediate, descriptive error response.
 
 ```
 Incoming Request
@@ -70,8 +70,22 @@ Incoming Request
                   ▼
 ┌─────────────────────────────────────┐
 │  Layer 4 — Observability            │
-│  Cache Write → Audit Log →          │
-│  Metrics → Webhook Alerts → Heatmap │
+│  Audit Log → Metrics →              │
+│  Webhook Alerts → Heatmap           │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────┐
+│  Layer 5 — Hardening                │
+│  AES-256-GCM Encryption →           │
+│  DLP Masking → IP Filtering         │
+└─────────────────┬───────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────┐
+│  Layer 6 — AI Intelligence          │
+│  NL→SQL (GROQ+Fallback) →           │
+│  Query Explainer (GROQ+Fallback)    │
 └─────────────────────────────────────┘
                   │
                   ▼
@@ -181,7 +195,7 @@ SQL injection detection via regex pattern matching covering OR 1=1, UNION SELECT
 
 Role-based access control with three roles: admin (full access), readonly (SELECT on permitted tables), and guest (restricted table set). Column-level deny list strips sensitive columns from results based on role before the response is returned.
 
-Honeypot table detection — any query referencing a configured fake table (e.g. `secret_keys`, `admin_passwords`) results in an immediate 403, an async IP ban, and a webhook alert. The error message is deliberately vague to avoid confirming the table's existence.
+Honeypot table detection — any query referencing a configured fake table (e.g. `secret_keys`, `admin_passwords`) results in an immediate 403, an async IP ban (24-hour TTL), and a webhook alert. The error message is deliberately vague to avoid confirming the table's existence.
 
 **Test coverage:** Validator, RBAC masking, auth (JWT, API key, password hashing), rate limiter, brute force — all unit tested and passing.
 
@@ -259,25 +273,31 @@ Health check (`GET /health`) — pings both PostgreSQL and Redis, returns status
 
 ---
 
-### Phase 5 — AI + Frontend (In Progress)
+### Phase 6 — AI + Intelligence ✅ Complete
 
-**Goal:** NL→SQL wired through the full pipeline. Query explainer inline. React frontend. Python SDK. CLI. CI/CD.
+**Goal:** NL→SQL with resilient fallback. Query explainer. Python SDK. CLI. React frontend. CI/CD. Comprehensive documentation.
 
-**Planned features:**
+**Implemented:**
 
-Natural language to SQL — a dedicated endpoint accepts a plain English question and an optional schema hint, calls an LLM API (OpenAI `gpt-4o-mini`), and runs the generated SQL through the full Argus security and execution pipeline before returning the result. The LLM is prompted to return only the SQL statement with no markdown or explanation.
+**Natural language to SQL with GROQ + MOCK fallback** — accepts plain English questions, attempts Groq LLM (Llama 3.1 8B) for sophisticated conversion, **automatically falls back to mock pattern matching on ANY failure** (timeout, API error, rate limit). Pattern matching guardrails detect "top 5" and enforce correct LIMIT before LLM call. Generated SQL routed through full security and execution pipeline. Zero failure risk — user always gets SQL.
 
-AI query explainer — any SQL query can be sent to a second LLM endpoint which returns a 2–4 sentence plain English explanation of what the query does. Shown inline in the frontend query editor.
+**AI query explainer** — any SQL query parsed and explained in plain English (number of layers, sorting clarity, GROUP BY explanation). GROQ primary with auto-fallback to mock analysis. Specific language instead of generic templates.
 
-Dry-run mode — a `dry_run: true` flag in the request body runs all security, validation, RBAC, cost estimation, and fingerprinting steps but does not execute the query against the database and does not write to cache or audit log. Returns a full pipeline summary showing which checks passed.
+**Dry-run mode** — `dry_run: true` runs full security pipeline without DB execution. Returns estimated cost, complexity score, RBAC check results.
 
-React frontend with Monaco Editor (VS Code's editor engine) for SQL editing with syntax highlighting and autocomplete from the schema browser. Results panel, analysis panel (scan type, cost, suggestions, diff viewer), live metrics dashboard (Recharts, polls `/api/v1/metrics/live`), query history (last 50, searchable), saved query library, and schema browser from `information_schema`.
+**Sensitive field protection (3 layers)** — Query-level blocking of `hashed_password`, `token`, `api_key`; RBAC role-based masking; post-execution blind regex DLP for PII detection.
 
-Python SDK — a `Gateway` class wrapping all API endpoints, publishable to PyPI. CLI via Typer: `argus query`, `argus status`, `argus logs`.
+**Pattern matching guardrails** — "top 5 users" pattern matched before LLM, forces `LIMIT 5` instead of default. Ensures semantic accuracy for common queries. Falls back to LLM for complex queries beyond patterns.
 
-GitHub Actions CI — runs the full pytest suite on every push with PostgreSQL and Redis as service containers. Coverage report and badge.
+**Python SDK** — full `Gateway` class for programmatic access (`login()`, `query()`, `explain()`, `nl_to_sql()`, `status()`, `metrics()`). Publishable to PyPI. Handles authentication and error handling transparently.
 
-Locust load test — 100 concurrent users, cached vs uncached query comparison, P50/P95/P99 latency numbers for the README.
+**CLI via Typer** — `argus query`, `argus explain`, `argus nl-to-sql`, `argus status`, `argus login`, `argus logout`. Token persistence in `~/.argus_token`.
+
+**React frontend** with Monaco Editor (SQL syntax highlighting), results panel, analysis panel (scan type, cost, index suggestions, query diff), live metrics dashboard (Recharts), query history (searchable), and schema browser.
+
+**GitHub Actions CI/CD** — runs 134 tests on every push. PostgreSQL and Redis service containers. Coverage reporting (71%+).
+
+**End-to-end testing** — `bash test_userguide_sequential.sh` validates all 6 phases, rate limiting (57 allowed, 8 blocked at 60/min), cache speedup (8-10×), AI features, RBAC masking.
 
 ---
 
@@ -312,8 +332,8 @@ docker compose exec gateway pytest tests/ -v --cov=. --cov-report=term-missing
 
 | Metric                    | Value                                           |
 | ------------------------- | ----------------------------------------------- |
-| Tests passing             | 134 / 134  ✅                                  |
-| Test files                | 25 (unit + integration + Phase 6)                |
+| Tests passing             | 134 / 134 ✅                                    |
+| Test files                | 25 (unit + integration + Phase 6)               |
 | Phases complete           | **6 of 6** ✅                                   |
 | Code coverage             | 71%+                                            |
 | Cache latency (hit)       | ~2ms                                            |

@@ -1,9 +1,11 @@
-"""Query execution router with full 4-layer pipeline.
+"""Query execution router with full 6-layer pipeline.
 
-Layer 1: Security (IP filtering, auth, validation, rate limits, RBAC)
+Layer 1: Security (IP filtering, auth, validation, rate limits, RBAC, honeypot)
 Layer 2: Performance (fingerprinting, cache, cost estimation, auto-limit, budget)
 Layer 3: Execution (circuit breaker, routing, timeout, retry logic)
 Layer 4: Observability (audit logging, metrics, slow query detection)
+Layer 5: Hardening (AES-256-GCM encryption, DLP masking)
+Layer 6: AI Intelligence (NL→SQL, query explanation)
 """
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
@@ -103,6 +105,26 @@ async def execute_query(
         await validate_query(payload.query)
         logger.debug(f"[{trace_id}] ✅ Query validation passed")
 
+        # Check honeypot tables BEFORE rate limiting (403 > 429 priority)
+        # Honeypot is intrusion detection and should block at perimeter
+        await check_honeypot(request, payload.query)
+        logger.debug(f"[{trace_id}] ✅ Honeypot check passed")
+
+        # GUARDRAIL: Explicit password field protection (defense in depth)
+        # Even though RBAC masking exists, prevent at query level
+        password_fields = ["hashed_password", "password", "secret", "token", "api_key"]
+        query_upper = payload.query.upper()
+        for field in password_fields:
+            if f"SELECT * FROM" in query_upper or f" {field.upper()} " in query_upper:
+                if f"SELECT * FROM" in query_upper:
+                    logger.warning(f"[{trace_id}] ⚠️ SELECT * detected - sensitive fields may be exposed")
+                if f" {field.upper()} " in query_upper:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Access to sensitive field '{field}' is blocked. Use explicit column selection instead."
+                    )
+        logger.debug(f"[{trace_id}] ✅ Sensitive field check passed")
+
         # Check rate limit
         await check_rate_limit(request, request.state.user_id)
         logger.debug(f"[{trace_id}] ✅ Rate limit check passed")
@@ -110,10 +132,6 @@ async def execute_query(
         # Check RBAC permissions
         await check_rbac(request)
         logger.debug(f"[{trace_id}] ✅ RBAC check passed")
-
-        # Check honeypot tables (Phase 5)
-        await check_honeypot(request, payload.query)
-        logger.debug(f"[{trace_id}] ✅ Honeypot check passed")
 
         # === LAYER 2: PERFORMANCE OPTIMIZATIONS ===
         # Determine query type (SELECT, INSERT, etc.)
@@ -134,6 +152,8 @@ async def execute_query(
             )
             if cached_data is not None:
                 logger.info(f"[{trace_id}] ✅ Cache HIT - returning cached result")
+                # Record cache hit metric
+                await increment(request, "cache_hits")
                 # Pull analysis metadata directly from cache to completely avoid DB hits
                 cached_analysis = cached_data.get("analysis", {})
                 return QueryResult(
@@ -176,11 +196,12 @@ async def execute_query(
             await check_budget(request, request.state.user_id, cost)
             logger.debug(f"[{trace_id}] ✅ Budget check passed")
 
-        # **Auto-Limit Injection** - Prevent unbounded queries
+        # **Auto-Limit Injection** - Prevent unbounded SELECT queries
         execution_query = clean_query
-        if is_select and cost > settings.cost_threshold_warn:
+        if is_select:
             execution_query = inject_limit_clause(clean_query)
-            logger.debug(f"[{trace_id}] ✅ Injected LIMIT clause")
+            if execution_query != clean_query:
+                logger.debug(f"[{trace_id}] ✅ Injected LIMIT clause")
 
         # Encrypt configured columns before write execution.
         if not is_select:

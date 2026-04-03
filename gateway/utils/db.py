@@ -64,8 +64,13 @@ async def get_replica_db():
 
 
 async def init_db():
-    """Create all tables."""
+    """Create all tables on both primary and replica databases."""
+    # Create tables on primary (write) database
     async with primary_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # Create tables on replica (read) database
+    async with replica_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 

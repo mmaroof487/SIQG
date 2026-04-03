@@ -6,7 +6,14 @@ import re
 
 logger = get_logger(__name__)
 
-# Column-to-role masking rules
+# Columns that should be completely denied (removed from result set) for specific roles
+# Admin always sees all columns; other roles have denied columns stripped entirely
+COLUMN_DENY_LIST = {
+    "hashed_password": {"admin": False, "readonly": True, "guest": True},  # True = deny for this role
+    "internal_notes": {"admin": False, "readonly": True, "guest": True},
+}
+
+# Column-to-role masking rules (partial redaction, not removal)
 COLUMN_MASKING_RULES = {
     "ssn": {"admin": False, "readonly": True, "guest": True},  # True = needs masking
     "credit_card": {"admin": False, "readonly": True, "guest": True},
@@ -28,6 +35,14 @@ async def check_rbac(request: Request):
         raise HTTPException(status_code=403, detail="Invalid role")
 
     request.state.permissions = role_permissions[role]
+
+
+def is_column_denied(column_name: str, role: str) -> bool:
+    """Check if a column is denied (completely removed) for the given role."""
+    if column_name not in COLUMN_DENY_LIST:
+        return False
+
+    return COLUMN_DENY_LIST[column_name].get(role, False)
 
 
 def needs_column_masking(column_name: str, role: str) -> bool:
@@ -75,7 +90,7 @@ def mask_pii_value(column_name: str, value: str) -> str:
 
 def blind_dlp_masking(value: str) -> str:
     """
-    Apply blind regex Data Loss Prevention (DLP) mask over any string, 
+    Apply blind regex Data Loss Prevention (DLP) mask over any string,
     preventing PII bypass via SQL column aliasing.
     """
     if not value or not isinstance(value, str):
@@ -83,42 +98,52 @@ def blind_dlp_masking(value: str) -> str:
 
     # Mask SSN: 123-45-6789 -> ***-**-****
     value = re.sub(r'\b\d{3}-\d{2}-\d{4}\b', '***-**-****', value)
-    
+
     # Mask Email (basic): user@example.com -> ***@***.***
     value = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b', '***@***.***', value)
-    
+
     # Mask Credit Cards (13-16 digits with optional spaces/dashes)
     value = re.sub(r'\b(?:\d[ -]*?){13,16}\b', '****-****-****-****', value)
-    
+
     return value
 
 
 def apply_rbac_masking(role: str, rows: list) -> list:
     """
-    Apply PII masking to result rows based on user role.
+    Apply RBAC filtering to result rows based on user role:
+    1. Remove denied columns entirely (hashed_password, internal_notes, etc.)
+    2. Mask PII in allowed columns (email, phone, ssn, credit_card, etc.)
+    3. Apply blind DLP regex protection to all string values
 
     Args:
         role: User role (admin, readonly, guest)
         rows: List of result row dicts
 
     Returns:
-        Masked result rows
+        Filtered and masked result rows
     """
     if role == "admin":
-        # Admin sees all data unmasked
+        # Admin sees all data unmasked and unfiltered
         return rows
 
     masked_rows = []
     for row in rows:
         masked_row = {}
         for column_name, value in row.items():
+            # Step 1: Check if column is denied for this role – skip entirely if denied
+            if is_column_denied(column_name, role):
+                logger.debug(f"Denying column '{column_name}' for role '{role}'")
+                continue  # Skip this column entirely
+
+            # Step 2: Apply masking if column needs it
             if needs_column_masking(column_name, role):
                 # Strict known column masking
                 masked_row[column_name] = mask_pii_value(column_name, value)
             else:
-                # Catch-all alias bypass protection (blind DLP)
+                # Step 3: Catch-all alias bypass protection (blind DLP)
                 masked_row[column_name] = blind_dlp_masking(value) if isinstance(value, str) else value
+
         masked_rows.append(masked_row)
 
-    logger.debug(f"Applied PII masking for role '{role}'")
+    logger.debug(f"Applied RBAC filtering and PII masking for role '{role}'")
     return masked_rows

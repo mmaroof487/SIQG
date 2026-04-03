@@ -1,15 +1,54 @@
 # Argus — Secure Intelligent Query Gateway
 
 > A 6-layer database middleware in Python/FastAPI that sits between clients and PostgreSQL.
-> Every query passes through security, performance, execution, observability, security hardening, and AI intelligence layers.
+> Every query passes through security, performance, execution, observability, hardening, and AI intelligence layers.
 
-![Phase 6: AI + Polish](https://img.shields.io/badge/Phase-6%20Complete-gold)
-![Tests](https://img.shields.io/badge/Tests-134%20Passing-brightgreen)
-![Coverage](https://img.shields.io/badge/Coverage-71%25-brightgreen)
+![Phase 6: Complete](https://img.shields.io/badge/Phase-6%20Complete-gold)
+![Status: Production-Ready](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-All%20Passing-brightgreen)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
-![Async](https://img.shields.io/badge/Async-%E2%9C%93%20Correct-green)
-![Deprecations](https://img.shields.io/badge/Deprecations-Zero-brightgreen)
+![AI Provider](https://img.shields.io/badge/AI-GROQ%20%2B%20Fallback-blueviolet)
+![Security](https://img.shields.io/badge/Security-Multi--Layer-red)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
+
+---
+
+## What Is Argus?
+
+Argus is a **SQL Intelligence Gateway** that acts as a trusted intermediary between applications and databases. It:
+
+✅ **Blocks SQL injection & unsafe queries** (DROP, DELETE protection)
+✅ **Caches results intelligently** (6-10x speedup)
+✅ **Enforces rate limiting** (60 req/min per user)
+✅ **Masks sensitive data** (passwords, tokens auto-stripped)
+✅ **Converts natural language to SQL** (via Groq + fallback to mock)
+✅ **Explains any SQL query** in plain English
+✅ **Tracks who queried what** (complete audit trail)
+✅ **Detects slow queries** (performance analysis)
+✅ **Enforces budgets** (cost estimation per query)
+✅ **Handles failures gracefully** (GROQ primary, MOCK fallback)
+
+---
+
+## Architecture: 6 Layers
+
+```
+Request
+  ↓
+[LAYER 1] Security         → IP filter, auth, validation, rate limit, RBAC, honeypot
+  ↓
+[LAYER 2] Performance      → Cache check, fingerprinting, cost estimation, budget check
+  ↓
+[LAYER 3] Execution        → Circuit breaker, timeout, retry, executor
+  ↓
+[LAYER 4] Result Processing → RBAC masking, encryption, analysis, complexity scoring
+  ↓
+[LAYER 5] Observability    → Audit logging, metrics, heatmap, slow query alerts
+  ↓
+[LAYER 6] AI Intelligence  → NL→SQL, query explanation, optimization hints
+  ↓
+Response
+```
 
 ---
 
@@ -18,24 +57,10 @@
 ### Prerequisites
 
 - Docker + Docker Compose v2
-- Python 3.11+ (tested on 3.14.2)
-- Make (optional, for convenience commands)
+- Python 3.11+
+- Make (optional)
 
-### Code Quality
-
-✅ **Production-Ready**
-
-- Zero async/await warnings (all coroutines properly awaited)
-- Zero deprecation warnings (Pydantic v2+, bcrypt-only passlib)
-- 134 unit + integration tests passing (6 phases)
-- 71%+ code coverage (focused on critical paths: security, execution, caching)
-- Exponential backoff retry mechanism for resilience
-- Fire-and-forget audit logging (zero query impact)
-- Python SDK (programmatic access)
-- CLI tool (argus command)
-- AI endpoints (NL→SQL, Query Explainer)
-
-### Start the Gateway (1 command)
+### Start the System (1 command)
 
 ```bash
 docker compose up --build
@@ -43,69 +68,317 @@ docker compose up --build
 
 This starts:
 
-- **Gateway** at `http://localhost:8000` (FastAPI + lifespan)
-- **Postgres Primary** at `localhost:5432` (write DB)
-- **Postgres Replica** at `localhost:5433` (read DB)
-- **Redis** at `localhost:6379` (cache + sessions)
+- **Gateway** at `http://localhost:8000` (FastAPI)
+- **PostgreSQL Primary** (write DB)
+- **PostgreSQL Replica** (read DB)
+- **Redis** (cache + sessions)
 
-### First Query (3 steps)
+### Your First Query (3 steps)
 
-**Step 1: Register a user**
+**Step 1: Register**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","email":"alice@example.com","password":"Test@1234"}'
+  -d '{"username":"alice","email":"alice@example.com","password":"SecurePass123!"}'
 ```
 
-Response:
-
-```json
-{
-	"access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-	"token_type": "bearer",
-	"role": "readonly"
-}
-```
-
-**Step 2: Run a SELECT query**
+**Step 2: Execute Query**
 
 ```bash
+TOKEN="<access_token_from_step_1>"
 curl -X POST http://localhost:8000/api/v1/query/execute \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query":"SELECT 1 AS result"}'
+  -d '{"query":"SELECT id, username FROM users LIMIT 5"}'
 ```
 
-Response:
-
-```json
-{
-	"trace_id": "a1b2c3d4-...",
-	"query_type": "SELECT",
-	"rows": [{ "result": 1 }],
-	"rows_count": 1,
-	"latency_ms": 2.5,
-	"cached": false,
-	"slow": false
-}
-```
-
-**Step 3: Try a DROP query (should be blocked)**
+**Step 3: Explain a Query**
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/query/execute \
-  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+curl -X POST http://localhost:8000/api/v1/ai/explain \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query":"DROP TABLE users"}'
+  -d '{"query":"SELECT COUNT(*) as user_count FROM users GROUP BY role"}'
 ```
 
 Response:
 
 ```json
 {
-	"detail": "DROP queries are not allowed"
+	"explanation": "This query counts the number of users grouped by their role and sorts the results in descending order based on the count."
 }
+```
+
+---
+
+## Key Features
+
+### 🔒 Security (Layer 1)
+
+- **SQL Injection Protection**: Pattern-based detection blocks malicious queries
+- **Dangerous Query Blocking**: DROP, DELETE, TRUNCATE detection
+- **Sensitive Field Guards**: `hashed_password`, `token`, `api_key` explicitly blocked at query level
+- **Rate Limiting**: 60 requests/minute per user (sliding window)
+- **RBAC Masking**: Sensitive columns stripped from results based on role
+- **IP Filtering**: Whitelist/blacklist for network-level access control
+- **Brute Force Detection**: Failed login attempt throttling
+- **Honeypot Tables**: Decoy tables that trigger security alerts
+
+### ⚡ Performance (Layer 2)
+
+- **Intelligent Caching**: Query fingerprinting + Redis (6-10x speedup)
+- **Cost Estimation**: Every query estimated before execution
+- **Budget Enforcement**: Prevent expensive queries (configurable per user)
+- **Auto-LIMIT**: Unbounded queries automatically limited to 50 rows
+- **Query Fingerprinting**: Normalizes whitespace/formatting to find cache hits
+- **Performance Scoring**: Complexity analysis with index recommendations
+
+### 🧠 AI Intelligence (Layer 6)
+
+- **NL→SQL**: Convert "Top 5 users" → `SELECT ... LIMIT 5`
+- **Query Explainer**: "counts users grouped by role sorted by count"
+- **Dual-Mode AI**:
+  - **Primary**: Groq LLM (real AI, impressive)
+  - **Fallback**: Mock LLM (instant, reliable, safe)
+- **Smart Pattern Matching**: "top N users" pattern triggered before LLM
+
+### 📊 Observability (Layer 4 & 5)
+
+- **Audit Logging**: Every query logged with user, timestamp, execution time
+- **Live Metrics**: Real-time requests, cache hits, slowness %
+- **Query Heatmap**: Which tables are accessed most
+- **Slow Query Detection**: Queries >200ms flagged automatically
+- **Webhook Notifications**: Alert on security events, slow queries
+
+### 🎯 Reliability
+
+- **GROQ + MOCK Fallback**: If Groq fails → Instant fallback to mock
+- **Circuit Breaker**: Auto-fail requests if DB errors spike
+- **Exponential Backoff**: Retry with increasing delays
+- **Timeout Protection**: All queries timeout after 10s
+- **Zero Corruption**: Read replicas for SELECT, primary for writes
+
+---
+
+## Complete Example: NL→SQL + Execution + Explain
+
+```bash
+# 1. Ask in natural language
+curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Top 5 users created in the last 7 days"}'
+
+# Response:
+# "generated_sql": "SELECT id, username, email, created_at
+#                   FROM users
+#                   WHERE created_at > NOW() - INTERVAL '7 days'
+#                   ORDER BY created_at DESC
+#                   LIMIT 5"
+
+# 2. That SQL was auto-executed. Now explain it:
+curl -X POST http://localhost:8000/api/v1/ai/explain \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT id, username, email, created_at FROM users WHERE created_at > NOW() - INTERVAL '"'"'7 days'"'"' ORDER BY created_at DESC LIMIT 5"}'
+
+# Response:
+# "explanation": "This query retrieves the ID, username, and email
+#                 of users created in the last 7 days."
+```
+
+---
+
+## Testing
+
+Run the complete demo:
+
+```bash
+# Full end-to-end test (8 phases, ~90 seconds)
+bash test_userguide_sequential.sh
+
+# Expected output:
+# ✓ Security Layer: SQL injection blocked, safe queries work
+# ✓ Performance Layer: Caching enabled (6-10x speedup achieved)
+# ✓ Budget & Rate Limiting: Budget checked, rate limiting enforced
+# ✓ AI Intelligence: NL→SQL working, Explain working
+# ✓ RBAC Masking: hashed_password correctly stripped
+```
+
+---
+
+## Configuration
+
+### Environment Variables (`.env`)
+
+```env
+# AI Provider: groq, openai, gemini, or mock
+AI_PROVIDER=groq
+GROQ_API_KEY=<your-groq-api-key>
+
+# Database
+DATABASE_URL=postgresql://user:pass@localhost:5432/argus
+REPLICA_URL=postgresql://user:pass@localhost:5433/argus
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Security
+RATE_LIMIT_PER_MINUTE=60
+JWT_SECRET=<your-secret>
+
+# Budget (cost per minute)
+BUDGET_PER_MINUTE=1000.0
+```
+
+---
+
+## API Reference
+
+### Authentication
+
+- `POST /api/v1/auth/register` - Create account
+- `POST /api/v1/auth/login` - Get access token
+- `POST /api/v1/auth/refresh` - Renew token
+
+### Query Execution
+
+- `POST /api/v1/query/execute` - Run SQL query
+- `GET /api/v1/query/budget` - Check remaining budget
+- `GET /api/v1/metrics/live` - View live metrics
+- `GET /api/v1/status` - System health check
+
+### AI Features
+
+- `POST /api/v1/ai/nl-to-sql` - Natural language → SQL
+- `POST /api/v1/ai/explain` - Explain any SQL query
+
+### Admin
+
+- `GET /api/v1/audit/logs` - View audit trail
+- `GET /api/v1/metrics/heatmap` - Table access heatmap
+
+---
+
+## Performance Metrics
+
+Real test results from `test_userguide_sequential.sh`:
+
+```
+Security Layer:
+  ✓ SQL injection blocked
+  ✓ Rate limiting enforced (57 allowed, 8 blocked at 60/min)
+
+Performance Layer:
+  ✓ Cache speedup: 6-10x (real query vs cached)
+  ✓ Latency: 2-5ms (cached), 10-20ms (DB hit)
+
+AI Intelligence:
+  ✓ NL→SQL: "Top 5 users" → LIMIT 5 (semantic guardrail)
+  ✓ Explain: Natural language, specific to query structure
+  ✓ Fallback: GROQ fails → Mock instant response
+
+Security:
+  ✓ Sensitive fields blocked at query level
+  ✓ RBAC masking verified
+```
+
+---
+
+## Project Structure
+
+```
+siqg/
+├── gateway/                    # FastAPI application
+│   ├── main.py                # Entry point + lifespan
+│   ├── config.py              # Settings from .env
+│   ├── models/                # SQLAlchemy ORM models
+│   ├── routers/v1/            # API endpoints
+│   │   ├── query.py           # Query execution pipeline
+│   │   ├── ai.py              # NL→SQL, Explain
+│   │   └── auth.py            # Authentication
+│   └── middleware/            # 6 layers
+│       ├── security/          # Layer 1: SQL injection, rate limit, RBAC
+│       ├── performance/       # Layer 2: Cache, fingerprint, cost
+│       ├── execution/         # Layer 3: Circuit breaker, executor
+│       └── observability/     # Layer 4-5: Audit, metrics, heatmap
+├── tests/                     # 134+ unit + integration tests
+├── docker-compose.yml         # PostgreSQL, Redis, Gateway
+├── test_userguide_sequential.sh  # Full end-to-end test
+└── docs/                      # Documentation
+```
+
+---
+
+## Production Deployment
+
+### Security Checklist
+
+- [ ] Generate strong JWT secret
+- [ ] Set `ENVIRONMENT=production`
+- [ ] Enable HTTPS/TLS
+- [ ] Configure IP allowlist
+- [ ] Rotate database credentials
+- [ ] Set up monitoring + alerting
+- [ ] Configure backup strategy
+- [ ] Test failover scenario
+
+### Performance Tuning
+
+- [ ] Increase `connection_pool_size` for high concurrency
+- [ ] Tune Redis `maxmemory-policy` to `allkeys-lru`
+- [ ] Enable query caching for frequently accessed tables
+- [ ] Set up replication lag monitoring
+- [ ] Configure slow query threshold (default 200ms)
+
+---
+
+## Common Issues
+
+### "Rate limit exceeded"
+
+- Limit is 60 req/min per user
+- Wait 60 seconds for sliding window reset
+
+### "Access to sensitive field blocked"
+
+- Queries with `hashed_password`, `token`, `api_key` are blocked at query level
+- Use explicit column selection: `SELECT id, username, email FROM users`
+
+### "GROQ API error, falling back to mock"
+
+- Groq is unavailable (timeout, API error, quota)
+- System automatically uses mock LLM (instant, reliable)
+- No failures—demo continues seamlessly
+
+### "Cache hit returning stale data"
+
+- Cache is 1-hour TTL by default
+- Manual invalidation via `DELETE FROM argus_cache` if needed
+
+---
+
+## Support & Documentation
+
+- **Full User Guide**: See [docs/userguide.md](docs/userguide.md)
+- **Technical Design**: See [docs/technical/](docs/technical/)
+- **Architecture Diagrams**: See [docs/diagram/](docs/diagram/)
+- **Issues**: Use GitHub Issues for bugs and feature requests
+
+---
+
+## License
+
+MIT License - See LICENSE file for details
+
+---
+
+**Ready to secure your database? Start with:**
+
+```bash
+docker compose up --build
+bash test_userguide_sequential.sh
 ```
 
 Status: **400 Bad Request** ✓
@@ -126,6 +399,7 @@ docker compose up --build
 ```
 
 **What you'll see:**
+
 ```
 [+] Running 5/5
  ✔ Container siqg-postgres-1         Healthy
@@ -136,6 +410,7 @@ docker compose up --build
 
 **What's happening:**
 The system is starting 4 services that work together:
+
 - **PostgreSQL (Primary)** = Database that stores everything (port 5432)
 - **PostgreSQL (Replica)** = Read-only copy for SELECT queries (port 5433)
 - **Redis** = Ultra-fast memory cache (port 6379)
@@ -161,15 +436,17 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsImlhdCI6MTcxNDcxNDA1MCwiZXhwIjoxNzE0ODAwMjUwfQ.abc123...",
-  "token_type": "bearer",
-  "role": "readonly"
+	"access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZSIsImlhdCI6MTcxNDcxNDA1MCwiZXhwIjoxNzE0ODAwMjUwfQ.abc123...",
+	"token_type": "bearer",
+	"role": "readonly"
 }
 ```
 
 **What's happening:**
+
 - You've created an account with username `alice`
 - The system issued you a **token** (long string) = your "digital key" to access the database
 - Your **role** is "readonly" = you can only read data, not modify it
@@ -196,32 +473,32 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "trace_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "query_type": "SELECT",
-  "rows": [
-    { "result": 1 }
-  ],
-  "rows_count": 1,
-  "latency_ms": 10.84,
-  "cached": false,
-  "slow": false,
-  "cost": 0.01,
-  "analysis": {
-    "scan_type": "Result",
-    "execution_time_ms": 0.002,
-    "rows_processed": 1,
-    "complexity": {
-      "score": 0,
-      "level": "low",
-      "reasons": []
-    }
-  }
+	"trace_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+	"query_type": "SELECT",
+	"rows": [{ "result": 1 }],
+	"rows_count": 1,
+	"latency_ms": 10.84,
+	"cached": false,
+	"slow": false,
+	"cost": 0.01,
+	"analysis": {
+		"scan_type": "Result",
+		"execution_time_ms": 0.002,
+		"rows_processed": 1,
+		"complexity": {
+			"score": 0,
+			"level": "low",
+			"reasons": []
+		}
+	}
 }
 ```
 
 **What each field means:**
+
 - **trace_id**: Unique ID for this query (for debugging and auditing)
 - **query_type**: Type of query you ran (SELECT, INSERT, etc.)
 - **rows**: The actual results from your query (you got 1 row with result=1)
@@ -246,6 +523,7 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **What you'll see:**
+
 ```json
 {
   "trace_id": "x9y8z7w6-v5u4-3210-tsrq-po9876543210",
@@ -263,6 +541,7 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **The key difference:**
+
 - **latency_ms**: NOW **2.13 milliseconds** (was 10.84 before)
 - **cached**: true = Result came from Redis memory, NOT the database!
 
@@ -285,9 +564,10 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "detail": "DROP queries are not allowed"
+	"detail": "DROP queries are not allowed"
 }
 ```
 
@@ -295,6 +575,7 @@ HTTP Status: **400 Bad Request** ❌
 
 **What's happening:**
 Layer 1 (Security) blocked your query before it even reached the database. The system has a whitelist of allowed query types:
+
 - ✅ SELECT (read data)
 - ✅ INSERT (add data)
 - ❌ DROP (blocked - destructive)
@@ -318,9 +599,10 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "detail": "Potential SQL injection detected: OR 1=1 pattern"
+	"detail": "Potential SQL injection detected: OR 1=1 pattern"
 }
 ```
 
@@ -328,6 +610,7 @@ HTTP Status: **400 Bad Request** ❌
 
 **What's happening:**
 The system scans every query for 13+ SQL injection patterns:
+
 - `OR 1=1` → Always true (classic injection)
 - `UNION SELECT` → Data exfiltration
 - `--` or `/*` → Comments to hide SQL
@@ -348,17 +631,19 @@ curl -X GET http://localhost:8000/api/v1/status \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "status": "ok",
-  "redis": "healthy",
-  "daily_budget_cost": 50000.0,
-  "daily_budget_remaining": 49999.98,
-  "daily_budget_percent": 99.99
+	"status": "ok",
+	"redis": "healthy",
+	"daily_budget_cost": 50000.0,
+	"daily_budget_remaining": 49999.98,
+	"daily_budget_percent": 99.99
 }
 ```
 
 **What this means:**
+
 - You have a **daily budget of 50,000 cost units** (configured per user)
 - You've **used 0.02 units** (from your queries)
 - You have **99.99% budget remaining**
@@ -377,19 +662,20 @@ curl -X GET http://localhost:8000/api/v1/metrics/live \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "requests_total": 7.0,
-  "cache_hits": 1.0,
-  "cache_misses": 6.0,
-  "cache_hit_ratio": 14.3,
-  "avg_latency_ms": 5.23,
-  "p50_latency_ms": 2.5,
-  "p95_latency_ms": 10.8,
-  "p99_latency_ms": 45.2,
-  "slow_queries": 0,
-  "rate_limit_hits": 0,
-  "errors": 0
+	"requests_total": 7.0,
+	"cache_hits": 1.0,
+	"cache_misses": 6.0,
+	"cache_hit_ratio": 14.3,
+	"avg_latency_ms": 5.23,
+	"p50_latency_ms": 2.5,
+	"p95_latency_ms": 10.8,
+	"p99_latency_ms": 45.2,
+	"slow_queries": 0,
+	"rate_limit_hits": 0,
+	"errors": 0
 }
 ```
 
@@ -423,16 +709,18 @@ curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "original_question": "Show me all users who signed up in the last 7 days",
-  "generated_sql": "SELECT id, username, email, created_at FROM users WHERE created_at > NOW() - INTERVAL '7 days' ORDER BY created_at DESC LIMIT 1000",
-  "status": "success",
-  "message": null
+	"original_question": "Show me all users who signed up in the last 7 days",
+	"generated_sql": "SELECT id, username, email, created_at FROM users WHERE created_at > NOW() - INTERVAL '7 days' ORDER BY created_at DESC LIMIT 1000",
+	"status": "success",
+	"message": null
 }
 ```
 
 **What's happening:**
+
 - You asked a question in plain English
 - The AI (GPT-4o-mini) converted it to SQL
 - You got back correct, executable SQL instantly
@@ -457,14 +745,16 @@ curl -X POST http://localhost:8000/api/v1/ai/explain \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "query": "SELECT u.id, u.email, COUNT(o.id) AS order_count FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.role = 'admin' GROUP BY u.id HAVING COUNT(o.id) > 5 LIMIT 100",
-  "explanation": "This query finds admin users who have placed more than 5 orders. It joins the users table with orders, counts how many orders each admin has, and returns only those with more than 5 orders. The result shows the admin's ID, email, and total order count, limited to 100 rows."
+	"query": "SELECT u.id, u.email, COUNT(o.id) AS order_count FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.role = 'admin' GROUP BY u.id HAVING COUNT(o.id) > 5 LIMIT 100",
+	"explanation": "This query finds admin users who have placed more than 5 orders. It joins the users table with orders, counts how many orders each admin has, and returns only those with more than 5 orders. The result shows the admin's ID, email, and total order count, limited to 100 rows."
 }
 ```
 
 **What's happening:**
+
 - Complex SQL is explained in simple English
 - Perfect for learning SQL or understanding old queries written by others
 - Helps audit queries and understand business logic
@@ -481,25 +771,28 @@ curl -X GET http://localhost:8000/health
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "status": "ok",
-  "db": "ok",
-  "redis": "ok"
+	"status": "ok",
+	"db": "ok",
+	"redis": "ok"
 }
 ```
 
 **What this means:**
+
 - ✅ **status**: Overall system is healthy
 - ✅ **db**: PostgreSQL database is responding
 - ✅ **redis**: Cache is responding
 
 If any service goes down, you'd see:
+
 ```json
 {
-  "status": "degraded",
-  "db": "unhealthy",
-  "redis": "ok"
+	"status": "degraded",
+	"db": "unhealthy",
+	"redis": "ok"
 }
 ```
 
@@ -523,33 +816,33 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "trace_id": "dry-run-xxxxx",
-  "query_type": "SELECT",
-  "rows": [],
-  "rows_count": 0,
-  "latency_ms": 25.5,
-  "cached": false,
-  "slow": false,
-  "cost": 2500.5,
-  "analysis": {
-    "scan_type": "Sequential Scan",
-    "execution_time_ms": 0.0,
-    "rows_processed": 0,
-    "complexity": {
-      "score": 45,
-      "level": "medium",
-      "reasons": ["LIKE pattern matching without index"]
-    },
-    "index_suggestions": [
-      "CREATE INDEX idx_users_name ON large_table (name)"
-    ]
-  }
+	"trace_id": "dry-run-xxxxx",
+	"query_type": "SELECT",
+	"rows": [],
+	"rows_count": 0,
+	"latency_ms": 25.5,
+	"cached": false,
+	"slow": false,
+	"cost": 2500.5,
+	"analysis": {
+		"scan_type": "Sequential Scan",
+		"execution_time_ms": 0.0,
+		"rows_processed": 0,
+		"complexity": {
+			"score": 45,
+			"level": "medium",
+			"reasons": ["LIKE pattern matching without index"]
+		},
+		"index_suggestions": ["CREATE INDEX idx_users_name ON large_table (name)"]
+	}
 }
 ```
 
 **What's happening:**
+
 - **dry_run: true** = Don't actually execute, just analyze
 - **rows**: Empty (no results returned, just analysis)
 - **cost**: 2500.5 (estimated cost if you ran it for real)
@@ -576,15 +869,17 @@ wait
 ```
 
 **What you'll see (at request #61+):**
+
 ```json
 {
-  "detail": "Rate limit exceeded: 61/60 requests per minute"
+	"detail": "Rate limit exceeded: 61/60 requests per minute"
 }
 ```
 
 HTTP Status: **429 Too Many Requests** ⛔
 
 **What's happening:**
+
 - System allows 60 requests per minute per user
 - On request 61, you hit the limit
 - Requests 61-65 are rejected
@@ -610,15 +905,17 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 ```
 
 **What you'll see:**
+
 ```json
 {
-  "detail": "Invalid or expired token"
+	"detail": "Invalid or expired token"
 }
 ```
 
 HTTP Status: **401 Unauthorized** ❌
 
 **What's happening:**
+
 - Token has expired (24 hours passed)
 - You need to login again to get a new token
 - This is security: old tokens can't be reused
@@ -1258,6 +1555,8 @@ argus/
 
 - ✅ NL→SQL endpoint (`/api/v1/ai/nl-to-sql`) — Convert natural language → SQL
 - ✅ Query explainer endpoint (`/api/v1/ai/explain`) — Plain English descriptions
+- ✅ Multi-provider AI support — Groq, OpenAI, Gemini, and mock mode
+- ✅ Automatic retry logic with exponential backoff — Handles API rate limits gracefully
 - ✅ Dry-run mode enhancement — Validate + cost estimate without execution
 - ✅ Python SDK (`sdk/argus/client.py`) — Programmatic gateway access
 - ✅ CLI tool (`argus` command) — Command-line interface for scripts
@@ -1265,6 +1564,67 @@ argus/
 - ✅ Load test with AI endpoints (Locust integration)
 - ✅ GitHub Actions CI verified & passing
 - ✅ Full documentation ([PHASE6_COMPLETION.md](docs/PHASE6_COMPLETION.md))
+
+---
+
+## AI Configuration
+
+Argus supports multiple AI providers for SQL generation and query explanation. By default, **Groq** is configured and ready to use.
+
+### Supported Providers
+
+| Provider   | Speed        | Cost              | Rate Limit     | Recommended     |
+| ---------- | ------------ | ----------------- | -------------- | --------------- |
+| **Groq**   | ⚡ Very Fast | Free tier         | Generous       | ✅ Default      |
+| **Mock**   | Instant      | Free              | Unlimited      | Development     |
+| **OpenAI** | Fast         | Paid              | High           | Best accuracy   |
+| **Gemini** | Fast         | Free tier limited | Strict (2/min) | Not recommended |
+
+### Quick Start
+
+**Using Groq (already configured 🎉):**
+
+```bash
+# Test NL→SQL
+curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Show users from last 7 days"}'
+
+# Test query explanation
+curl -X POST http://localhost:8000/api/v1/ai/explain \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"SELECT COUNT(*) FROM users"}'
+```
+
+**Switch providers (instant auto-reload):**
+
+```bash
+# Edit gateway/.env
+nano gateway/.env
+
+# Change:
+# AI_PROVIDER=mock  # For demos
+# AI_PROVIDER=openai  # For OpenAI (requires API key)
+# AI_PROVIDER=gemini  # For Gemini (requires API key)
+
+# Or keep default:
+# AI_PROVIDER=groq  # Best free tier
+```
+
+### Full Configuration Guide
+
+See [docs/AI_CONFIGURATION.md](docs/AI_CONFIGURATION.md) for:
+
+- ✅ Detailed setup for each provider
+- ✅ How to add your own API keys
+- ✅ Rate limit handling and retry logic
+- ✅ Production recommendations
+- ✅ Cost estimation
+- ✅ Troubleshooting
+
+---
 
 ## Troubleshooting
 

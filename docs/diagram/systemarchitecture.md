@@ -62,8 +62,10 @@ graph TB
         end
 
         subgraph AI["AI Layer"]
-            NL["NL to SQL\n(LLM API)"]
-            EXP["Query Explainer\n(LLM API)"]
+            NL["NL to SQL\n(Pattern Match)"]
+            GROQ["Groq LLM\n(Primary)"]
+            MOCK["Mock LLM\n(Fallback)"]
+            EXP["Query Explainer\n(Result Parsing)"]
         end
     end
 
@@ -75,7 +77,7 @@ graph TB
 
     subgraph EXTERNAL["External"]
         DISCORD["Discord / Slack\n(webhook alerts)"]
-        OPENAI["OpenAI API\n(NL-to-SQL)"]
+        GROQ_API["Groq API\n(Llama 3.1 8B)"]
     end
 
     UI --> GATEWAY
@@ -93,8 +95,11 @@ graph TB
     MASK --> CWRITE --> AUDIT --> METRICS --> WEBHOOK --> HEAT
 
     WEBHOOK --> DISCORD
-    NL --> OPENAI
-    EXP --> OPENAI
+    NL --> GROQ
+    GROQ -->|Fallback on Error| MOCK
+    EXP --> NL
+
+    GROQ --> GROQ_API
 
     CACHE -.-> REDIS
     CWRITE -.-> REDIS

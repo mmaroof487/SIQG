@@ -75,8 +75,13 @@ class Settings(BaseSettings):
     circuit_cooldown_seconds: int = 30
 
     # === AI ===
+    ai_provider: str = "mock"  # Options: "mock", "openai", "gemini", "groq"
     openai_api_key: str = ""
-    ai_model: str = "gpt-4o-mini"
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
+    ai_model: str = "gpt-4o-mini"  # For OpenAI
+    gemini_model: str = "gemini-2.0-flash"  # For Gemini
+    groq_model: str = "llama-3.1-8b-instant"  # For Groq
     ai_enabled: bool = False
 
     # === WEBHOOKS ===

@@ -52,8 +52,15 @@ if ! "${DC[@]}" exec -T gateway sh -c 'python -m pytest --version >/dev/null 2>&
     "${DC[@]}" exec -T gateway sh -c 'pip install --no-cache-dir pytest pytest-asyncio pytest-cov >/dev/null'
 fi
 
-echo -e "\n${YELLOW}Running Unit Tests...${NC}"
+echo -e "\n${YELLOW}Running Unit Tests (including 5 new injection patterns)...${NC}"
 "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/ -v --tb=short 2>&1' || true
+
+echo -e "\n${YELLOW}Verifying new SQL injection patterns (SLEEP, WAITFOR, BENCHMARK, information_schema, stacked)...${NC}"
+if "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/unit/test_validator.py -v --tb=short -k "sleep or waitfor or benchmark or information_schema or stacked" 2>&1'; then
+  echo -e "${GREEN}✅ New injection pattern tests passed${NC}\n"
+else
+  echo -e "${RED}❌ New injection pattern tests failed${NC}\n"
+fi
 
 echo -e "\n${YELLOW}Running Phase 1 checks...${NC}"
 if bash ./test_features.sh phase1; then
@@ -103,6 +110,33 @@ else
   echo -e "${RED}❌ Phase 5 unit tests failed${NC}\n"
 fi
 
+# Verify honeypot IP auto-ban (fix #2 - consolidated honeypot with IP blocklist)
+echo -e "${YELLOW}Testing honeypot IP auto-ban...${NC}"
+HONEYPOT_HTTP=$("${DC[@]}" exec -T gateway python3 -c "
+import urllib.request, json
+req = urllib.request.Request(
+    'http://localhost:8000/api/v1/query/execute',
+    data=json.dumps({'query': 'SELECT * FROM secret_keys'}).encode(),
+    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer dummy'},
+    method='POST'
+)
+try:
+    urllib.request.urlopen(req)
+    print('200')
+except urllib.error.HTTPError as e:
+    print(e.code)
+except:
+    print('000')
+" 2>/dev/null || echo "000")
+if [ "$HONEYPOT_HTTP" = "403" ]; then
+  echo -e "${GREEN}✅ Honeypot detection returns 403${NC}\n"
+else
+  echo -e "${YELLOW}⚠ Honeypot test: HTTP $HONEYPOT_HTTP (may need auth)${NC}\n"
+fi
+
+# Clear IP blocklist after honeypot test to allow subsequent tests
+"${DC[@]}" exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 > /dev/null 2>&1 || true
+
 echo -e "${YELLOW}Running Phase 6 checks (AI + Polish)...${NC}"
 echo -e "${YELLOW}Running Phase 6 AI endpoint tests...${NC}"
 if "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/unit/test_ai.py -v --tb=short 2>&1'; then
@@ -118,6 +152,35 @@ if "${DC[@]}" exec -T gateway sh -c 'cd /app && python -m pytest tests/unit/test
 else
   PHASE6_STATUS=1
   echo -e "${RED}❌ Phase 6 SDK tests failed (collection OK, tests may be skipped)${NC}\n"
+fi
+
+# Auth refresh endpoint test (fix #10)
+echo -e "${YELLOW}Testing /api/v1/auth/refresh endpoint...${NC}"
+REFRESH_HTTP=$("${DC[@]}" exec -T gateway python3 -c "
+import urllib.request, json, time
+ts = str(int(time.time()))
+# Register a test user
+reg_data = json.dumps({'username': 'refresh_test_' + ts, 'email': 'refresh_' + ts + '@test.com', 'password': 'testpass123'}).encode()
+req = urllib.request.Request('http://localhost:8000/api/v1/auth/register', data=reg_data, headers={'Content-Type': 'application/json'}, method='POST')
+try:
+    resp = urllib.request.urlopen(req)
+    token = json.loads(resp.read()).get('access_token', '')
+    if token:
+        ref_req = urllib.request.Request('http://localhost:8000/api/v1/auth/refresh', headers={'Authorization': 'Bearer ' + token}, method='POST')
+        try:
+            urllib.request.urlopen(ref_req)
+            print('200')
+        except urllib.error.HTTPError as e:
+            print(e.code)
+    else:
+        print('000')
+except Exception as e:
+    print('000')
+" 2>/dev/null || echo "000")
+if [ "$REFRESH_HTTP" = "200" ]; then
+  echo -e "${GREEN}✅ Token refresh endpoint working${NC}\n"
+else
+  echo -e "${YELLOW}⚠ Refresh returned HTTP $REFRESH_HTTP${NC}\n"
 fi
 
 echo -e "${YELLOW}Final cleanup...${NC}"

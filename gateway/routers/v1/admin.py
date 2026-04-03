@@ -47,7 +47,8 @@ async def add_ip_rule(
     if payload.rule_type == "allow":
         await redis.sadd("argus:ip:allowlist", payload.ip_address)
     else:
-        await redis.sadd("argus:ip:blocklist", payload.ip_address)
+        # Use 24-hour TTL for blocklist to auto-expire bans
+        await redis.setex(f"argus:ip:blocklist:{payload.ip_address}", 24 * 3600, "1")
 
     logger.info(f"IP rule added: {payload.ip_address} {payload.rule_type}")
 
@@ -64,7 +65,9 @@ async def remove_ip_rule(
     redis = request.app.state.redis
 
     await redis.srem("argus:ip:allowlist", ip_address)
-    await redis.srem("argus:ip:blocklist", ip_address)
+    # Handle both old set-based and new TTL-based blocklist formats
+    await redis.delete(f"argus:ip:blocklist:{ip_address}")
+    await redis.srem("argus:ip:blocklist", ip_address)  # Fallback for legacy entries
 
     logger.info(f"IP rule removed: {ip_address}")
 
@@ -90,7 +93,7 @@ async def audit_log(
             stmt = stmt.where(AuditLog.status == status)
         result = await session.execute(stmt)
         rows = result.scalars().all()
-    
+
     return [
         {
             "trace_id": r.trace_id,
@@ -199,10 +202,10 @@ async def budget_usage(request: Request, user=Depends(require_admin)):
     # Scan for keys matching argus:budget:*:{today}
     pattern = f"argus:budget:*:*{today}*"
     keys = await redis.keys(pattern)
-    
+
     if not keys:
         return {"users": []}
-        
+
     values = await redis.mget(keys)
     budgets = []
     from config import settings
@@ -216,5 +219,5 @@ async def budget_usage(request: Request, user=Depends(require_admin)):
                 "used": float(val or 0),
                 "limit": settings.daily_budget_default
             })
-            
+
     return {"users": budgets}

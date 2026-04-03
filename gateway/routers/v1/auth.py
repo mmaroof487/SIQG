@@ -122,3 +122,45 @@ async def register(request: Request, data: RegisterRequest):
     except Exception as e:
         logger.error(f"Registration error: {e}")
         raise HTTPException(status_code=500, detail="Registration failed")
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(request: Request):
+    """
+    Renew an existing JWT token.
+    
+    Validates the current token, confirms user still exists in DB,
+    and issues a fresh token with a new expiry.
+    """
+    # Extract token from Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    token = auth_header.replace("Bearer ", "")
+
+    # Decode the existing token (will raise 401 if expired/invalid)
+    from middleware.security.auth import decode_jwt, create_jwt
+    payload = decode_jwt(token)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+
+    # Confirm user still exists in DB
+    async with PrimarySession() as session:
+        stmt = select(User).where(User.id == user_id)
+        result = await session.execute(stmt)
+        user = result.scalars().first()
+
+    if not user:
+        logger.warning(f"Token refresh failed: user {user_id} no longer exists")
+        raise HTTPException(status_code=401, detail="User no longer exists")
+
+    # Issue a fresh token
+    new_token = create_jwt(str(user.id), user.role)
+    logger.info(f"Token refreshed for: {user.username}")
+
+    return TokenResponse(
+        access_token=new_token,
+        role=user.role,
+    )

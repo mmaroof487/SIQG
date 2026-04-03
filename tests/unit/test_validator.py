@@ -53,3 +53,31 @@ async def test_block_injection():
     with pytest.raises(HTTPException) as exc:
         await validate_query("SELECT * FROM users WHERE id=1 OR 1=1")
     assert exc.value.status_code == 400
+
+
+# ---- Tests for the 5 new injection patterns ----
+
+def test_detect_sleep_injection():
+    """Test time-based blind injection: SLEEP()."""
+    assert detect_sql_injection("SELECT * FROM users WHERE id=1 AND SLEEP(5)")
+
+
+def test_detect_waitfor_injection():
+    """Test time-based blind injection: WAITFOR DELAY."""
+    assert detect_sql_injection("SELECT * FROM users; WAITFOR DELAY '0:0:5'")
+
+
+def test_detect_benchmark_injection():
+    """Test time-based blind injection: BENCHMARK()."""
+    assert detect_sql_injection("SELECT BENCHMARK(1000000, SHA1('test'))")
+
+
+def test_detect_information_schema():
+    """Test schema enumeration: information_schema."""
+    assert detect_sql_injection("SELECT * FROM information_schema.tables")
+
+
+def test_detect_stacked_select():
+    """Test stacked queries: ;SELECT."""
+    assert detect_sql_injection("SELECT 1; SELECT * FROM users")
+

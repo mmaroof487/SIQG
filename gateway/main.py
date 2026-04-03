@@ -1,11 +1,15 @@
 """FastAPI application and lifespan management."""
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import redis.asyncio as aioredis
 from config import settings
 from utils.db import init_db, close_db
+# IMPORTANT: Import models BEFORE init_db() so SQLAlchemy registers them with Base
+from models import User, APIKey, IPRule, Role, AuditLog, SlowQuery, SLASnapshot
 from routers.v1 import auth, query, admin, metrics, ai
+from middleware.security.auth import get_current_user
+from middleware.security.rate_limiter import check_rate_limit
 import logging
 
 # Configure logging
@@ -43,7 +47,7 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Argus - Secure Intelligent Query Gateway",
-    description="A 4-layer database middleware for security, performance, intelligence, and observability.",
+    description="A 6-layer database middleware for security, performance, execution, observability, hardening, and AI intelligence.",
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -83,22 +87,29 @@ async def health_check(request: Request):
     return status_data
 
 
-# Status endpoint
+# Status endpoint (public - no auth required, like /health)
 @app.get("/api/v1/status")
 async def status(request: Request):
-    """Gateway status with DB and Redis health."""
+    """Gateway status with DB and Redis health. Public endpoint for monitoring/healthchecks."""
+    status_data = {"status": "ok", "db": "ok", "redis": "ok"}
     try:
-        # Test Redis
         await request.app.state.redis.ping()
-        redis_ok = True
     except Exception as e:
-        redis_ok = False
         logger.error(f"Redis health check failed: {e}")
+        status_data["redis"] = "unhealthy"
+        status_data["status"] = "degraded"
 
-    return {
-        "status": "ok",
-        "redis": "healthy" if redis_ok else "unhealthy",
-    }
+    try:
+        from utils.db import PrimarySession
+        from sqlalchemy import text
+        async with PrimarySession() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"DB health check failed: {e}")
+        status_data["db"] = "unhealthy"
+        status_data["status"] = "degraded"
+
+    return status_data
 
 
 # Register routers
