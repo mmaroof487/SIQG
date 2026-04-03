@@ -63,6 +63,8 @@ else
 fi
 
 echo -e "\n${YELLOW}Running Phase 1 checks...${NC}"
+# Clear any IP blocklist entries before Phase 1 to ensure clean slate
+"${DC[@]}" exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 >/dev/null 2>&1 || true
 if bash ./test_features.sh phase1; then
   PHASE1_STATUS=0
   echo -e "${GREEN}✅ Phase 1 passed${NC}\n"
@@ -72,6 +74,8 @@ else
 fi
 
 echo -e "${YELLOW}Running Phase 2 checks...${NC}"
+# Clear IP blocklist for clean Phase 2 start
+"${DC[@]}" exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 >/dev/null 2>&1 || true
 "${DC[@]}" exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 if bash ./test_features.sh phase2; then
   PHASE2_STATUS=0
@@ -82,6 +86,8 @@ else
 fi
 
 echo -e "${YELLOW}Running Phase 3 checks...${NC}"
+# Clear IP blocklist for clean Phase 3 start
+"${DC[@]}" exec -T redis redis-cli EVAL "return redis.call('del', unpack(redis.call('keys', 'argus:ip:blocklist:*')))" 0 >/dev/null 2>&1 || true
 "${DC[@]}" exec -T redis redis-cli FLUSHALL >/dev/null 2>&1 || true
 if bash ./test_features.sh phase3; then
   PHASE3_STATUS=0
