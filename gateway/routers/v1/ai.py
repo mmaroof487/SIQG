@@ -247,6 +247,10 @@ async def call_llm(system: str, user_message: str) -> str:
     Catches both exceptions AND error-string responses from providers,
     ensuring the mock fallback activates in ALL failure scenarios.
     """
+    # Check AI enabled status FIRST, before trying any provider
+    if not settings.ai_enabled:
+        return "ERROR: AI is disabled. Set AI_ENABLED=true to use AI features"
+
     # If explicitly using mock, call mock directly
     if settings.ai_provider == "mock":
         return await call_llm_mock(system, user_message)
@@ -267,7 +271,7 @@ async def call_llm(system: str, user_message: str) -> str:
             return await call_llm_mock(system, user_message)
 
         # Check if provider returned an error string instead of raising an exception
-        # (e.g., when AI_ENABLED=false or API key is missing)
+        # (e.g., when API key is missing)
         if isinstance(result, str) and result.startswith("ERROR:"):
             logger.warning(f"Primary provider ({settings.ai_provider}) returned error: {result}")
             # Return error directly - don't fall back to mock for config/disabled errors

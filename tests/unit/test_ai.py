@@ -84,6 +84,7 @@ async def test_call_llm_disabled():
 async def test_call_llm_api_error():
     """Test LLM call with API error."""
     with patch("routers.v1.ai.settings.ai_enabled", True), \
+         patch("routers.v1.ai.settings.ai_provider", "openai"), \
          patch("routers.v1.ai.settings.openai_api_key", "test-key"), \
          patch("routers.v1.ai.httpx.AsyncClient") as mock_client_class:
 
