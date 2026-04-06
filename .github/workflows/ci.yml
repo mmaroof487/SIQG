@@ -14,9 +14,9 @@ jobs:
       postgres:
         image: postgres:15-alpine
         env:
-          POSTGRES_USER: siqg
-          POSTGRES_PASSWORD: siqg
-          POSTGRES_DB: siqg
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus
+          POSTGRES_DB: argus
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -55,10 +55,12 @@ jobs:
           pytest ../tests/ -v --cov=. --cov-report=term-missing --cov-report=xml --cov-report=html
         env:
           SECRET_KEY: "ci-test-secret-key-do-not-use-in-production"
-          ENCRYPTION_KEY: "ci-test-encryption-key-32-chars!!"
-          DB_PRIMARY_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
-          DB_REPLICA_URL: postgresql+asyncpg://siqg:siqg@localhost:5432/siqg
+          ENCRYPTION_KEY: "12345678901234567890123456789012"
+          DB_PRIMARY_URL: postgresql+asyncpg://argus:argus@localhost:5432/argus
+          DB_REPLICA_URL: postgresql+asyncpg://argus:argus@localhost:5432/argus
           REDIS_URL: redis://localhost:6379/0
+          AI_PROVIDER: "mock"
+          AI_ENABLED: false
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -68,11 +70,68 @@ jobs:
 
   integration_test:
     runs-on: ubuntu-latest
+    needs: test
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus
+          POSTGRES_DB: argus
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      postgres_replica:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: argus
+          POSTGRES_PASSWORD: argus
+          POSTGRES_DB: argus
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create .env from example
-        run: cp .env.example .env
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-      - name: Run Full Integration Suite (Phases 1-4)
+      - name: Install dependencies
+        run: |
+          cd gateway
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run Integration Tests
         run: bash test_all_phases.sh
+        env:
+          SECRET_KEY: "ci-test-secret-key-do-not-use-in-production"
+          ENCRYPTION_KEY: "12345678901234567890123456789012"
+          DB_PRIMARY_URL: postgresql+asyncpg://argus:argus@localhost:5432/argus
+          DB_REPLICA_URL: postgresql+asyncpg://argus:argus@localhost:5433/argus
+          REDIS_URL: redis://localhost:6379/0
+          AI_PROVIDER: "mock"
+          AI_ENABLED: false
+          ENVIRONMENT: ci
