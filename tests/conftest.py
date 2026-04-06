@@ -30,7 +30,6 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from main import app
 from utils.db import Base
-from pytest_asyncio import fixture as pytest_asyncio_fixture
 
 
 # Test database URL (SQLite in-memory)
@@ -98,7 +97,7 @@ def guest_token():
     return "guest-token-12345"
 
 
-@pytest_asyncio_fixture
+@pytest.fixture
 async def redis_client():
     """Mock Redis client for testing."""
     from unittest.mock import AsyncMock
@@ -112,7 +111,7 @@ async def redis_client():
     return client
 
 
-@pytest_asyncio_fixture
+@pytest.fixture
 async def primary_session():
     """Primary database session."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
@@ -126,7 +125,7 @@ async def primary_session():
     await engine.dispose()
 
 
-@pytest_asyncio_fixture
+@pytest.fixture
 async def readonly_session():
     """Readonly database session."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
