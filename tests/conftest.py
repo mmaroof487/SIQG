@@ -56,31 +56,66 @@ async def test_db():
 @pytest.fixture
 def client():
     """FastAPI test client (synchronous) with mocked Redis."""
-    # Mock Redis client for testing
-    mock_redis = AsyncMock()
-    mock_redis.ping = AsyncMock(return_value=True)
-    mock_redis.set = AsyncMock(return_value=True)
-    mock_redis.get = AsyncMock(return_value=None)
-    mock_redis.delete = AsyncMock(return_value=1)
-    mock_redis.exists = AsyncMock(return_value=False)  # Not in blocklist by default
-    mock_redis.sismember = AsyncMock(return_value=False)  # Not in allowlist by default
-    mock_redis.incrbyfloat = AsyncMock(return_value=1.0)
-    mock_redis.expire = AsyncMock(return_value=True)
-    mock_redis.sadd = AsyncMock(return_value=1)
-    mock_redis.aclose = AsyncMock(return_value=None)
+    # Mock Redis client for testing - need to handle async calls properly
     
-    # Mock pipeline - return a mock that can handle multiple operations
-    mock_pipeline = MagicMock()
-    mock_pipeline.lpush = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.rpush = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.incr = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.incrby = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.incrbyfloat = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.expire = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.execute = AsyncMock(return_value=[1, 1, 1])
-    mock_redis.pipeline = MagicMock(return_value=mock_pipeline)
+    # Create a class that behaves like an async mock but handles comparisons
+    class RedisAsyncMock:
+        def __init__(self):
+            self._data = {}
+            
+        async def ping(self):
+            return True
+            
+        async def set(self, key, value):
+            self._data[key] = value
+            return True
+            
+        async def get(self, key):
+            return self._data.get(key)
+            
+        async def delete(self, key):
+            if key in self._data:
+                del self._data[key]
+            return 1
+            
+        async def exists(self, key):
+            """Return 0 (False) so IP filter allows all IPs"""
+            return 0
+            
+        async def sismember(self, key, member):
+            """Return 0 (False) so IP filter allows all IPs"""
+            return 0
+            
+        async def incrbyfloat(self, key, amount=1.0):
+            current = float(self._data.get(key, 0))
+            new_value = current + amount
+            self._data[key] = new_value
+            return new_value  # Return the numeric value, not a mock
+            
+        async def expire(self, key, seconds):
+            return True
+            
+        async def sadd(self, key, member):
+            return 1
+            
+        def pipeline(self):
+            """Return a mock pipeline"""
+            mock_pipeline = MagicMock()
+            mock_pipeline.lpush = MagicMock(return_value=mock_pipeline)
+            mock_pipeline.rpush = MagicMock(return_value=mock_pipeline)
+            mock_pipeline.incr = MagicMock(return_value=mock_pipeline)
+            mock_pipeline.incrby = MagicMock(return_value=mock_pipeline)
+            mock_pipeline.incrbyfloat = MagicMock(return_value=mock_pipeline)
+            mock_pipeline.expire = MagicMock(return_value=mock_pipeline)
+            mock_pipeline.execute = AsyncMock(return_value=[1, 1, 1])
+            return mock_pipeline
+            
+        async def aclose(self):
+            return None
     
-    # Patch Redis connection - make from_url an AsyncMock that returns the mock_redis
+    mock_redis = RedisAsyncMock()
+    
+    # Patch Redis connection - make from_url return the mock
     mock_from_url = AsyncMock(return_value=mock_redis)
     
     with patch("redis.asyncio.from_url", mock_from_url):
