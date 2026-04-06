@@ -63,3 +63,69 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture
+def token():
+    """Generic test token."""
+    return "test-token-12345"
+
+
+@pytest.fixture
+def admin_token():
+    """Admin user test token."""
+    return "admin-token-12345"
+
+
+@pytest.fixture
+def readonly_token():
+    """Readonly user test token."""
+    return "readonly-token-12345"
+
+
+@pytest.fixture
+def guest_token():
+    """Guest user test token."""
+    return "guest-token-12345"
+
+
+@pytest.fixture
+async def redis_client():
+    """Mock Redis client for testing."""
+    from unittest.mock import AsyncMock
+    client = AsyncMock()
+    client.set = AsyncMock(return_value=True)
+    client.get = AsyncMock(return_value=None)
+    client.delete = AsyncMock(return_value=1)
+    client.incrbyfloat = AsyncMock(return_value=1.0)
+    client.expire = AsyncMock(return_value=True)
+    client.sadd = AsyncMock(return_value=1)
+    return client
+
+
+@pytest.fixture
+async def primary_session():
+    """Primary database session."""
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    yield Session
+    
+    await engine.dispose()
+
+
+@pytest.fixture
+async def readonly_session():
+    """Readonly database session."""
+    engine = create_async_engine(TEST_DB_URL, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    yield Session
+    
+    await engine.dispose()
