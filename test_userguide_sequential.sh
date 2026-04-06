@@ -43,15 +43,30 @@ else
 fi
 
 # Clean up old containers and volumes before starting
-echo -e "${YELLOW}Cleaning up old containers...${NC}"
+echo -e "${YELLOW}Cleaning up old containers and checking ports...${NC}"
 "${DC[@]}" down --remove-orphans -v 2>/dev/null || true
+
+# Force cleanup any stuck containers/volumes/networks
+docker system prune -f --volumes 2>/dev/null || true
+
+# Wait for ports to be released (sometimes they stick around)
+echo -e "${YELLOW}Waiting for ports to be fully released...${NC}"
+sleep 3
 
 echo -e "${YELLOW}Starting services...${NC}"
 if ! "${DC[@]}" up -d --build --remove-orphans; then
   echo -e "${RED}❌ Failed to start services${NC}"
-  echo -e "${YELLOW}Attempting cleanup and restart...${NC}"
+  echo -e "${YELLOW}Attempting aggressive cleanup and restart...${NC}"
+  
+  # More aggressive cleanup
   "${DC[@]}" down -v 2>/dev/null || true
-  sleep 5
+  docker system prune -f --volumes 2>/dev/null || true
+  docker container prune -f 2>/dev/null || true
+  
+  # Wait longer for ports to fully release
+  echo -e "${YELLOW}Waiting 10s for ports to fully release...${NC}"
+  sleep 10
+  
   if ! "${DC[@]}" up -d --build --remove-orphans; then
     echo -e "${RED}❌ Failed to start services on retry${NC}"
     exit 1
@@ -581,9 +596,11 @@ echo -e "Phases Passed: ${GREEN}${TOTAL_PASSED}/${#PHASE_RESULTS[@]}${NC}"
 echo -e "Phases Failed: ${RED}${TOTAL_FAILED}/${#PHASE_RESULTS[@]}${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}\n"
 
-# Clean up containers and volumes
-echo -e "${YELLOW}Cleaning up containers...${NC}"
+# Clean up containers and volumes (aggressive cleanup for next test run)
+echo -e "${YELLOW}Cleaning up containers and system resources...${NC}"
 "${DC[@]}" down --remove-orphans -v 2>/dev/null || true
+docker system prune -f --volumes 2>/dev/null || true
+docker container prune -f 2>/dev/null || true
 
 if [ $TOTAL_FAILED -eq 0 ]; then
   echo -e "${GREEN}✅ ALL PHASES PASSED - Argus is production-ready!${NC}\n"
