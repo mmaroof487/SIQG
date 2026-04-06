@@ -19,10 +19,10 @@ async def test_circuit_breaker_open_blocks_query(client, token: str):
     # Mock the Redis client directly on the app
     from unittest.mock import AsyncMock
     mock_redis = client.app.state.redis
-    
+
     # Set circuit breaker to OPEN
     mock_redis.set = AsyncMock(return_value=True)
-    
+
     # Try to execute a query
     response = client.post(
         "/api/v1/query/execute",
