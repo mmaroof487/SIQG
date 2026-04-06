@@ -277,5 +277,5 @@ class TestSDKPackageStructure:
         # Skip if running in container without SDK mounted
         if not cli_file.exists():
             pytest.skip("SDK directory not available in this environment")
-        content = cli_file.read_text()
+        content = cli_file.read_text(encoding='utf-8')
         assert "typer" in content or "Typer" in content
