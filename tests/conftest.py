@@ -30,7 +30,7 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from main import app
 from utils.db import Base
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 from middleware.security.auth import create_jwt
 
 
@@ -66,6 +66,17 @@ def client():
     mock_redis.expire = AsyncMock(return_value=True)
     mock_redis.sadd = AsyncMock(return_value=1)
     mock_redis.aclose = AsyncMock(return_value=None)
+    
+    # Mock pipeline - return a mock that can handle multiple operations
+    mock_pipeline = AsyncMock()
+    mock_pipeline.lpush = AsyncMock(return_value=1)
+    mock_pipeline.rpush = AsyncMock(return_value=1)
+    mock_pipeline.incr = AsyncMock(return_value=1)
+    mock_pipeline.incrby = AsyncMock(return_value=1)
+    mock_pipeline.incrbyfloat = AsyncMock(return_value=1.0)
+    mock_pipeline.expire = AsyncMock(return_value=True)
+    mock_pipeline.execute = AsyncMock(return_value=[1, 1, 1])
+    mock_redis.pipeline = MagicMock(return_value=mock_pipeline)
     
     # Patch Redis connection - make from_url an AsyncMock that returns the mock_redis
     mock_from_url = AsyncMock(return_value=mock_redis)
