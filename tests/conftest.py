@@ -30,6 +30,7 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from main import app
 from utils.db import Base
+from unittest.mock import AsyncMock, patch
 
 
 # Test database URL (SQLite in-memory)
@@ -53,9 +54,23 @@ async def test_db():
 
 @pytest.fixture
 def client():
-    """FastAPI test client (synchronous)."""
-    with TestClient(app) as client:
-        yield client
+    """FastAPI test client (synchronous) with mocked Redis."""
+    # Mock Redis client for testing
+    mock_redis = AsyncMock()
+    mock_redis.ping = AsyncMock(return_value=True)
+    mock_redis.set = AsyncMock(return_value=True)
+    mock_redis.get = AsyncMock(return_value=None)
+    mock_redis.delete = AsyncMock(return_value=1)
+    mock_redis.incrbyfloat = AsyncMock(return_value=1.0)
+    mock_redis.expire = AsyncMock(return_value=True)
+    mock_redis.sadd = AsyncMock(return_value=1)
+    mock_redis.aclose = AsyncMock(return_value=None)
+    
+    # Patch Redis connection in both main module and in redis.asyncio
+    with patch("redis.asyncio.from_url", return_value=mock_redis):
+        with TestClient(app) as client:
+            client.app.state.redis = mock_redis
+            yield client
 
 
 @pytest.fixture
