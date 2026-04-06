@@ -84,8 +84,17 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.1-8b-instant"  # For Groq
     ai_enabled: bool = False
 
+    # === SENSITIVE FIELDS ===
+    sensitive_fields_csv: str = "hashed_password,password,token,api_key,secret,internal_notes"
+
     # === WEBHOOKS ===
     webhook_url: str = ""
+
+
+    @property
+    def sensitive_fields(self) -> set[str]:
+        """Single source of truth for sensitive field names."""
+        return {f.strip().lower() for f in self.sensitive_fields_csv.split(",") if f.strip()}
 
     @property
     def encrypt_columns_list(self) -> List[str]:

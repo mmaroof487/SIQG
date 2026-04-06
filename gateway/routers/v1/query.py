@@ -110,19 +110,19 @@ async def execute_query(
         await check_honeypot(request, payload.query)
         logger.debug(f"[{trace_id}] ✅ Honeypot check passed")
 
-        # GUARDRAIL: Explicit password field protection (defense in depth)
-        # Even though RBAC masking exists, prevent at query level
-        password_fields = ["hashed_password", "password", "secret", "token", "api_key"]
-        query_upper = payload.query.upper()
-        for field in password_fields:
-            if f"SELECT * FROM" in query_upper or f" {field.upper()} " in query_upper:
-                if f"SELECT * FROM" in query_upper:
-                    logger.warning(f"[{trace_id}] ⚠️ SELECT * detected - sensitive fields may be exposed")
-                if f" {field.upper()} " in query_upper:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Access to sensitive field '{field}' is blocked. Use explicit column selection instead."
-                    )
+        # GUARDRAIL: Sensitive field protection (centralized via settings.sensitive_fields)
+        query_lower = payload.query.lower()
+        for field in settings.sensitive_fields:
+            if field in query_lower and not payload.query.strip().upper().startswith("INSERT"):
+                logger.warning(f"[{trace_id}] ⚠️ Sensitive field '{field}' detected in query")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "blocked": True,
+                        "block_reasons": [f"Query references sensitive field: {field}"],
+                        "suggested_fix": "Remove the sensitive field from your query. Safe columns: id, username, email, role, is_active, created_at",
+                    }
+                )
         logger.debug(f"[{trace_id}] ✅ Sensitive field check passed")
 
         # Check rate limit

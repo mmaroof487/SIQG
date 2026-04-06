@@ -147,3 +147,21 @@ def apply_rbac_masking(role: str, rows: list) -> list:
 
     logger.debug(f"Applied RBAC filtering and PII masking for role '{role}'")
     return masked_rows
+
+
+def strip_denied_columns(role: str, columns: list[str]) -> list[str]:
+    """
+    Filter out denied columns for the given role.
+    Used to rewrite SELECT * into explicit allowed columns before execution.
+
+    Args:
+        role: User role (admin, readonly, guest)
+        columns: All column names from the table schema
+
+    Returns:
+        List of columns the role is allowed to see
+    """
+    if role == "admin":
+        return columns
+
+    return [col for col in columns if not is_column_denied(col, role)]

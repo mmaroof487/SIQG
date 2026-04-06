@@ -55,14 +55,22 @@ async def validate_query(query: str):
         logger.warning(f"Dangerous query blocked: {first_word}")
         raise HTTPException(
             status_code=400,
-            detail=f"Query type not allowed: {first_word}"
+            detail={
+                "blocked": True,
+                "block_reasons": [f"Query type '{first_word}' is dangerous and not allowed"],
+                "suggested_fix": f"Use SELECT or INSERT instead of {first_word}",
+            }
         )
 
     # Check for SQL injection after query type gate.
     if detect_sql_injection(query):
         raise HTTPException(
             status_code=400,
-            detail="Potential SQL injection detected"
+            detail={
+                "blocked": True,
+                "block_reasons": ["Potential SQL injection pattern detected"],
+                "suggested_fix": "Remove SQL injection patterns (OR 1=1, UNION SELECT, SLEEP, etc.) from your query",
+            }
         )
 
     # Only allow SELECT and INSERT by default
@@ -71,6 +79,23 @@ async def validate_query(query: str):
         logger.warning(f"Disallowed query type: {first_word}")
         raise HTTPException(
             status_code=400,
-            detail=f"Query type '{first_word}' is not allowed. Only SELECT and INSERT are allowed."
+            detail={
+                "blocked": True,
+                "block_reasons": [f"Query type '{first_word}' is not in the allowed list"],
+                "suggested_fix": "Only SELECT and INSERT queries are allowed",
+            }
         )
 
+
+def contains_sensitive_column(sql: str, sensitive_fields: set[str]) -> str | None:
+    """
+    Check if a SQL query references any sensitive column.
+    Returns the field name if found, None otherwise.
+
+    Used for pre-execution blocking and testing.
+    """
+    lowered = sql.lower()
+    for field in sensitive_fields:
+        if field in lowered:
+            return field
+    return None
