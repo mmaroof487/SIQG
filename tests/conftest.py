@@ -58,58 +58,58 @@ def client():
     class MockRedis:
         def __init__(self):
             self.data = {}
-            
+
         async def ping(self):
             return True
-            
+
         async def get(self, key):
             return self.data.get(key)
-            
+
         async def mget(self, *keys):
             """Get multiple keys."""
             return [self.data.get(k) for k in keys]
-            
+
         async def set(self, key, value):
             self.data[key] = value
             return True
-            
+
         async def delete(self, key):
             if key in self.data:
                 del self.data[key]
             return 1
-            
+
         async def exists(self, key):
             return 0  # Always return 0 (not in blocklist)
-            
+
         async def sismember(self, key, member):
             return 0  # Always return 0 (not in allowlist)
-            
+
         async def incr(self, key, amount=1):
             """Increment integer value"""
             val = int(self.data.get(key, 0)) + amount
             self.data[key] = val
             return val
-            
+
         async def incrbyfloat(self, key, amount=1.0):
             """Increment float value"""
             val = float(self.data.get(key, 0)) + amount
             self.data[key] = val
             return val
-            
+
         async def expire(self, key, seconds):
             return True
-            
+
         async def ttl(self, key):
             """Return TTL in seconds (-1 if no expiry, -2 if key doesn't exist)."""
             return -1  # Pretend keys never expire
-            
+
         async def sadd(self, key, member):
             return 1
-            
+
         async def setex(self, key, seconds, value):
             self.data[key] = value
             return True
-            
+
         def pipeline(self):
             """Return a chainable pipeline mock"""
             mock_pipe = MagicMock()
@@ -120,14 +120,14 @@ def client():
             mock_pipe.expire = MagicMock(return_value=mock_pipe)
             mock_pipe.execute = AsyncMock(return_value=[1, 1, 1])
             return mock_pipe
-            
+
         async def lpush(self, key, value):
             """Push to left of list."""
             if key not in self.data:
                 self.data[key] = []
             self.data[key].insert(0, value)
             return len(self.data[key])
-            
+
         async def lrange(self, key, start, end):
             """Get range from list."""
             if key not in self.data:
@@ -136,12 +136,12 @@ def client():
             if end == -1:
                 return lst[start:]
             return lst[start:end+1]
-            
+
         async def aclose(self):
             return None
-    
+
     mock_redis = MockRedis()
-    
+
     # Patch IP filter at the call site to skip checks in tests
     # Also patch Redis for operations that aren't skipped
     with patch("redis.asyncio.from_url", new_callable=AsyncMock, return_value=mock_redis):

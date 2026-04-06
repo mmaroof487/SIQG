@@ -20,6 +20,18 @@ echo -e "${BLUE}   Argus Userguide Phase Test${NC}"
 echo -e "${BLUE}  (Phase 1-6: Auth → AI Intelligence)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
+# Create .env from .env.example if it doesn't exist
+if [ ! -f .env ]; then
+  if [ -f .env.example ]; then
+    echo -e "${YELLOW}Creating .env from .env.example...${NC}"
+    cp .env.example .env
+    echo -e "${GREEN}✅ .env created${NC}"
+  else
+    echo -e "${RED}❌ Neither .env nor .env.example found${NC}"
+    exit 1
+  fi
+fi
+
 # Support both docker-compose v1 and v2
 if command -v docker-compose >/dev/null 2>&1; then
   DC=(docker-compose)

@@ -20,7 +20,7 @@ def get_session_for_query(query: str, request: Request):
     Route queries to correct database:
     - SELECT → Replica (read-only)
     - INSERT/UPDATE → Primary (write)
-    
+
     Returns async context manager for session.
     """
     keyword = _first_keyword(query)
@@ -48,7 +48,7 @@ async def execute_with_timeout(
 ) -> tuple:
     """
     Execute query with timeout and exponential backoff retry.
-    
+
     Returns: (rows, column_names)
     """
     if timeout_seconds is None:
@@ -70,7 +70,7 @@ async def execute_with_timeout(
                     # SQLite and other databases may not support statement_timeout
                     pass
 
-                # Execute query. Escape colons to prevent SQLAlchemy from treating them as bind parameters 
+                # Execute query. Escape colons to prevent SQLAlchemy from treating them as bind parameters
                 # (which would crash native Postgres casting like ::uuid or JSON ops).
                 safe_query = query.replace(':', '\\:')
                 result = await asyncio.wait_for(

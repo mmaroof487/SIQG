@@ -22,6 +22,18 @@ echo -e "${BLUE}   Argus Full Phase Test Runner${NC}"
 echo -e "${BLUE}   (Phase 1 -> 6: Foundation to AI+Polish)${NC}"
 echo -e "${BLUE}========================================${NC}\n"
 
+# Create .env from .env.example if it doesn't exist
+if [ ! -f .env ]; then
+  if [ -f .env.example ]; then
+    echo -e "${YELLOW}Creating .env from .env.example...${NC}"
+    cp .env.example .env
+    echo -e "${GREEN}✅ .env created${NC}"
+  else
+    echo -e "${RED}❌ Neither .env nor .env.example found${NC}"
+    exit 1
+  fi
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   echo -e "${RED}❌ Docker not found${NC}"
   exit 1

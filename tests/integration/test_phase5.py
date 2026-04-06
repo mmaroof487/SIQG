@@ -33,7 +33,7 @@ async def test_encryption_roundtrip(client, admin_token: str):
     import uuid
     from datetime import datetime
     ts = str(int(time.time()))
-    
+
     # Try a simple SELECT instead of INSERT since INSERT handling is complex in tests
     response = client.post(
         "/api/v1/query/execute",
@@ -51,14 +51,14 @@ async def test_rbac_email_masking_readonly(client, admin_token: str, readonly_to
     import uuid
     ts = str(int(time.time()))
     test_id = str(uuid.uuid4())
-    
+
     # First create a user with admin role
     client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": f"INSERT INTO users (id, username, email, hashed_password, role, is_active) VALUES ('{test_id}', 'readonly_test_{ts}', 'user_{ts}@example.com', 'hash_{ts}', 'readonly', 1)"},
     )
-    
+
     # Query email as readonly
     response = client.post(
         "/api/v1/query/execute",
@@ -81,14 +81,14 @@ async def test_denied_columns_stripped_readonly(client, admin_token: str, readon
     import uuid
     ts = str(int(time.time()))
     test_id = str(uuid.uuid4())
-    
+
     # Create test user first
     client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": f"INSERT INTO users (id, username, email, hashed_password, role, is_active) VALUES ('{test_id}', 'strip_test_{ts}', 'strip_{ts}@test.com', 'hash_{ts}', 'readonly', 1)"},
     )
-    
+
     response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {readonly_token}"},
@@ -112,14 +112,14 @@ async def test_admin_sees_all_columns(client, admin_token: str):
     import uuid
     ts = str(int(time.time()))
     test_id = str(uuid.uuid4())
-    
+
     # Create test user with admin
     insert_resp = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": f"INSERT INTO users (id, username, email, hashed_password, role, is_active) VALUES ('{test_id}', 'admin_test_{ts}', 'admin_{ts}@test.com', 'hash_{ts}', 'admin', 1)"},
     )
-    
+
     response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -174,14 +174,14 @@ async def test_guest_role_sees_no_denied_columns(client, admin_token: str, guest
     import uuid
     ts = str(int(time.time()))
     test_id = str(uuid.uuid4())
-    
+
     # Create test user first
     client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": f"INSERT INTO users (id, username, email, hashed_password, role, is_active) VALUES ('{test_id}', 'guest_test_{ts}', 'guest_{ts}@test.com', 'hash_{ts}', 'guest', 1)"},
     )
-    
+
     response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {guest_token}"},
@@ -197,7 +197,7 @@ async def test_masking_applied_across_large_result_set(client, admin_token: str,
     """Test that queries on multiple rows work correctly."""
     import uuid
     ts = str(int(time.time()))
-    
+
     # Create multiple test users
     for i in range(3):
         test_id = str(uuid.uuid4())
@@ -206,7 +206,7 @@ async def test_masking_applied_across_large_result_set(client, admin_token: str,
             headers={"Authorization": f"Bearer {admin_token}"},
             json={"query": f"INSERT INTO users (id, username, email, hashed_password, role, is_active) VALUES ('{test_id}', 'masking_test_{ts}_{i}', 'mask_{ts}_{i}@test.com', 'hash_{ts}_{i}', 'readonly', 1)"},
         )
-    
+
     response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {readonly_token}"},
@@ -216,7 +216,7 @@ async def test_masking_applied_across_large_result_set(client, admin_token: str,
     # Query should succeed
     assert response.status_code == 200, f"Query failed: {response.text}"
     data = response.json()
-    
+
     # If rows exist, they should have email column
     if data.get("rows"):
         for row in data["rows"]:
