@@ -67,6 +67,10 @@ def client():
         async def get(self, key):
             return self.data.get(key)
             
+        async def mget(self, *keys):
+            """Get multiple keys."""
+            return [self.data.get(k) for k in keys]
+            
         async def set(self, key, value):
             self.data[key] = value
             return True
@@ -118,6 +122,22 @@ def client():
             mock_pipe.expire = MagicMock(return_value=mock_pipe)
             mock_pipe.execute = AsyncMock(return_value=[1, 1, 1])
             return mock_pipe
+            
+        async def lpush(self, key, value):
+            """Push to left of list."""
+            if key not in self.data:
+                self.data[key] = []
+            self.data[key].insert(0, value)
+            return len(self.data[key])
+            
+        async def lrange(self, key, start, end):
+            """Get range from list."""
+            if key not in self.data:
+                return []
+            lst = self.data.get(key, [])
+            if end == -1:
+                return lst[start:]
+            return lst[start:end+1]
             
         async def aclose(self):
             return None
