@@ -64,16 +64,16 @@ echo -e "${YELLOW}Starting services once...${NC}"
 if ! "${DC[@]}" up -d --build --remove-orphans; then
   echo -e "${RED}❌ Failed to start services${NC}"
   echo -e "${YELLOW}Attempting aggressive cleanup and restart...${NC}"
-  
+
   # More aggressive cleanup
   "${DC[@]}" down -v 2>/dev/null || true
   docker system prune -f --volumes 2>/dev/null || true
   docker container prune -f 2>/dev/null || true
-  
+
   # Wait longer for ports to fully release
   echo -e "${YELLOW}Waiting 10s for ports to fully release...${NC}"
   sleep 10
-  
+
   if ! "${DC[@]}" up -d --build --remove-orphans; then
     echo -e "${RED}❌ Failed to start services on retry${NC}"
     echo -e "${YELLOW}Debug info: Checking port 5432...${NC}"
