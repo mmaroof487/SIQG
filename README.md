@@ -126,6 +126,41 @@ Response:
 
 ---
 
+## 🎬 Live Demo
+
+### CLI Demo (Complete User Journey)
+
+```bash
+# Start the system
+docker compose up --build
+
+# In another terminal, run the demo
+bash demo_cli.sh
+```
+
+The demo showcases:
+✅ User registration and authentication  
+✅ SQL execution with latency tracking  
+✅ Natural language to SQL conversion  
+✅ Query explanation in plain English  
+✅ Cost estimation (dry-run mode)  
+✅ System health and metrics  
+
+**Sample output:** See [DEMO_OUTPUT.md](DEMO_OUTPUT.md)
+
+### Web Dashboard
+
+```
+http://localhost:3000
+```
+
+Three interactive pages:
+1. **Query Editor** — English input + SQL + results (cached in 3ms!)
+2. **Metrics** — Live latency charts, cache hits, query heatmap
+3. **Health** — System status (PostgreSQL, Redis, circuit breaker)
+
+---
+
 ## Key Features
 
 ### 🔒 Security (Layer 1)

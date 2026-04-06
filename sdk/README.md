@@ -155,6 +155,43 @@ if result["status"] == "error":
     print(f"NL→SQL failed: {result['message']}")
 ```
 
+## Live Demo
+
+### Interactive CLI Demo
+
+See the SDK in action with a complete user journey:
+
+```bash
+# Start the backend (if not already running)
+docker compose up --build
+
+# In another terminal, run the demo
+bash demo_cli.sh
+```
+
+**Demo includes:**
+- ✓ User registration and authentication
+- ✓ SQL query execution with latency tracking
+- ✓ Natural language to SQL conversion
+- ✓ Query explanation in plain English
+- ✓ Dry-run mode for cost estimation
+- ✓ System health checks
+- ✓ Live performance metrics
+
+**Expected output:** See [DEMO_OUTPUT.md](../DEMO_OUTPUT.md) for sample results
+
+### Web Dashboard Demo
+
+For a visual demo, the web dashboard is available at:
+```
+http://localhost:3000
+```
+
+Includes:
+- Query page with NL input and results
+- Live metrics dashboard (latency, cache hit rates)
+- System health status page
+
 ## Development
 
 ### Running Tests
