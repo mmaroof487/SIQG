@@ -86,7 +86,15 @@ def client():
             """Return 0 (False) so IP filter allows all IPs"""
             return 0
             
+        async def incr(self, key, amount=1):
+            """Increment a key"""
+            current = int(self._data.get(key, 0))
+            new_value = current + amount
+            self._data[key] = new_value
+            return new_value
+            
         async def incrbyfloat(self, key, amount=1.0):
+            """Increment a key by a float"""
             current = float(self._data.get(key, 0))
             new_value = current + amount
             self._data[key] = new_value
