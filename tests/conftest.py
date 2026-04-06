@@ -62,19 +62,21 @@ def client():
     mock_redis.set = AsyncMock(return_value=True)
     mock_redis.get = AsyncMock(return_value=None)
     mock_redis.delete = AsyncMock(return_value=1)
+    mock_redis.exists = AsyncMock(return_value=False)  # Not in blocklist by default
+    mock_redis.sismember = AsyncMock(return_value=False)  # Not in allowlist by default
     mock_redis.incrbyfloat = AsyncMock(return_value=1.0)
     mock_redis.expire = AsyncMock(return_value=True)
     mock_redis.sadd = AsyncMock(return_value=1)
     mock_redis.aclose = AsyncMock(return_value=None)
     
     # Mock pipeline - return a mock that can handle multiple operations
-    mock_pipeline = AsyncMock()
-    mock_pipeline.lpush = AsyncMock(return_value=1)
-    mock_pipeline.rpush = AsyncMock(return_value=1)
-    mock_pipeline.incr = AsyncMock(return_value=1)
-    mock_pipeline.incrby = AsyncMock(return_value=1)
-    mock_pipeline.incrbyfloat = AsyncMock(return_value=1.0)
-    mock_pipeline.expire = AsyncMock(return_value=True)
+    mock_pipeline = MagicMock()
+    mock_pipeline.lpush = MagicMock(return_value=mock_pipeline)
+    mock_pipeline.rpush = MagicMock(return_value=mock_pipeline)
+    mock_pipeline.incr = MagicMock(return_value=mock_pipeline)
+    mock_pipeline.incrby = MagicMock(return_value=mock_pipeline)
+    mock_pipeline.incrbyfloat = MagicMock(return_value=mock_pipeline)
+    mock_pipeline.expire = MagicMock(return_value=mock_pipeline)
     mock_pipeline.execute = AsyncMock(return_value=[1, 1, 1])
     mock_redis.pipeline = MagicMock(return_value=mock_pipeline)
     
