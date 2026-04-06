@@ -56,90 +56,71 @@ async def test_db():
 @pytest.fixture
 def client():
     """FastAPI test client (synchronous) with mocked Redis."""
-    # Mock Redis client for testing
-    # Use AsyncMock which handles all method calls generically
-    mock_redis = AsyncMock()
-
-    # Data storage for get/set operations
-    mock_data = {}
-
-    # Override specific methods that need real implementations
-    async def mock_get(key):
-        return mock_data.get(key)
-
-    async def mock_set(key, value):
-        mock_data[key] = value
-        return True
-
-    async def mock_exists(key):
-        # Return 0 (False) so IP filter allows all IPs
-        return 0
-
-    async def mock_sismember(key, member):
-        # Return 0 (False) so allowlist doesn't block
-        return 0
-
-    async def mock_incrbyfloat(key, amount=1.0):
-        current = float(mock_data.get(key, 0))
-        new_value = current + amount
-        mock_data[key] = new_value
-        return new_value
-
-    async def mock_incr(key, amount=1):
-        current = int(mock_data.get(key, 0))
-        new_value = current + amount
-        mock_data[key] = new_value
-        return new_value
-
-    async def mock_setex(key, seconds, value):
-        mock_data[key] = value
-        return True
-
-    async def mock_delete(key):
-        if key in mock_data:
-            del mock_data[key]
-        return 1
-
-    async def mock_ping():
-        return True
-
-    async def mock_expire(key, seconds):
-        return True
-
-    async def mock_sadd(key, member):
-        return 1
-
-    async def mock_aclose():
-        return None
-
-    # Configure the mock
-    mock_redis.get.side_effect = mock_get
-    mock_redis.set.side_effect = mock_set
-    mock_redis.exists.side_effect = mock_exists
-    mock_redis.sismember.side_effect = mock_sismember
-    mock_redis.incrbyfloat.side_effect = mock_incrbyfloat
-    mock_redis.incr.side_effect = mock_incr
-    mock_redis.setex.side_effect = mock_setex
-    mock_redis.delete.side_effect = mock_delete
-    mock_redis.ping.side_effect = mock_ping
-    mock_redis.expire.side_effect = mock_expire
-    mock_redis.sadd.side_effect = mock_sadd
-    mock_redis.aclose.side_effect = mock_aclose
-
-    # Mock pipeline
-    mock_pipeline = MagicMock()
-    mock_pipeline.lpush = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.rpush = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.incr = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.incrby = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.incrbyfloat = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.expire = MagicMock(return_value=mock_pipeline)
-    mock_pipeline.execute = AsyncMock(return_value=[1, 1, 1])
-    mock_redis.pipeline = MagicMock(return_value=mock_pipeline)
-
-    # Patch Redis connection
+    # Create a real Redis mock class that properly handles all operations
+    class MockRedis:
+        def __init__(self):
+            self.data = {}
+            
+        async def ping(self):
+            return True
+            
+        async def get(self, key):
+            return self.data.get(key)
+            
+        async def set(self, key, value):
+            self.data[key] = value
+            return True
+            
+        async def delete(self, key):
+            if key in self.data:
+                del self.data[key]
+            return 1
+            
+        async def exists(self, key):
+            return 0  # Always return 0 (not in blocklist)
+            
+        async def sismember(self, key, member):
+            return 0  # Always return 0 (not in allowlist)
+            
+        async def incr(self, key, amount=1):
+            """Increment integer value"""
+            val = int(self.data.get(key, 0)) + amount
+            self.data[key] = val
+            return val
+            
+        async def incrbyfloat(self, key, amount=1.0):
+            """Increment float value"""
+            val = float(self.data.get(key, 0)) + amount
+            self.data[key] = val
+            return val
+            
+        async def expire(self, key, seconds):
+            return True
+            
+        async def sadd(self, key, member):
+            return 1
+            
+        async def setex(self, key, seconds, value):
+            self.data[key] = value
+            return True
+            
+        def pipeline(self):
+            """Return a chainable pipeline mock"""
+            mock_pipe = MagicMock()
+            mock_pipe.lpush = MagicMock(return_value=mock_pipe)
+            mock_pipe.rpush = MagicMock(return_value=mock_pipe)
+            mock_pipe.incr = MagicMock(return_value=mock_pipe)
+            mock_pipe.incrby = MagicMock(return_value=mock_pipe)
+            mock_pipe.expire = MagicMock(return_value=mock_pipe)
+            mock_pipe.execute = AsyncMock(return_value=[1, 1, 1])
+            return mock_pipe
+            
+        async def aclose(self):
+            return None
+    
+    mock_redis = MockRedis()
     mock_from_url = AsyncMock(return_value=mock_redis)
-
+    
     with patch("redis.asyncio.from_url", mock_from_url):
         with TestClient(app) as client:
             client.app.state.redis = mock_redis
