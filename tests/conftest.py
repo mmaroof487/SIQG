@@ -14,24 +14,22 @@ os.environ.setdefault("DB_PRIMARY_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("DB_REPLICA_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 
-# Add gateway directory to path
-# In Docker: ./gateway:/app, so gateway files are at /app
-# Locally: gateway files are at ./gateway
-gateway_dir = Path(__file__).parent.parent / "gateway"
-if not gateway_dir.exists():
-    # Try current working directory (Docker container context)
-    gateway_dir = Path.cwd()
-sys.path.insert(0, str(gateway_dir))
+# Add both project root and gateway directory to path
+# This allows imports like 'from gateway.main' and 'from config' to work
+project_root = Path(__file__).parent.parent  # Project root
+gateway_dir = project_root / "gateway"  # Gateway module directory
+sys.path.insert(0, str(project_root))  # Add project root for 'from gateway...' imports
+sys.path.insert(0, str(gateway_dir))   # Add gateway dir for relative imports within gateway
 
 import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from main import app
-from utils.db import Base
+from gateway.main import app
+from gateway.utils.db import Base
 from unittest.mock import AsyncMock, patch, MagicMock
-from middleware.security.auth import create_jwt
+from gateway.middleware.security.auth import create_jwt
 
 
 # Test database URL (SQLite in-memory)
