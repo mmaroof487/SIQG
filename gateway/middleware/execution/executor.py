@@ -63,8 +63,12 @@ async def execute_with_timeout(
             await check_circuit_breaker(request)
             session_ctx = get_session_for_query(query, request)
             async with session_ctx as session:
-                # Set query timeout
-                await session.execute(text(f"SET statement_timeout = {timeout_seconds * 1000}"))
+                # Set query timeout (skip for SQLite as it doesn't support it)
+                try:
+                    await session.execute(text(f"SET statement_timeout = {timeout_seconds * 1000}"))
+                except Exception:
+                    # SQLite and other databases may not support statement_timeout
+                    pass
 
                 # Execute query. Escape colons to prevent SQLAlchemy from treating them as bind parameters 
                 # (which would crash native Postgres casting like ::uuid or JSON ops).

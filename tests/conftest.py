@@ -97,6 +97,10 @@ def client():
         async def expire(self, key, seconds):
             return True
             
+        async def ttl(self, key):
+            """Return TTL in seconds (-1 if no expiry, -2 if key doesn't exist)."""
+            return -1  # Pretend keys never expire
+            
         async def sadd(self, key, member):
             return 1
             
@@ -119,12 +123,14 @@ def client():
             return None
     
     mock_redis = MockRedis()
-    mock_from_url = AsyncMock(return_value=mock_redis)
     
-    with patch("redis.asyncio.from_url", mock_from_url):
-        with TestClient(app) as client:
-            client.app.state.redis = mock_redis
-            yield client
+    # Patch IP filter at the call site to skip checks in tests
+    # Also patch Redis for operations that aren't skipped
+    with patch("redis.asyncio.from_url", new_callable=AsyncMock, return_value=mock_redis):
+        with patch("gateway.routers.v1.query.check_ip_filter", new_callable=AsyncMock):
+            with TestClient(app) as client:
+                client.app.state.redis = mock_redis
+                yield client
 
 
 @pytest.fixture
@@ -144,8 +150,8 @@ def event_loop():
 
 @pytest.fixture
 def token():
-    """Generic test token (valid JWT)."""
-    return create_jwt("test-user-123", "user")
+    """Generic test token (valid JWT) - use readonly role."""
+    return create_jwt("test-user-123", "readonly")
 
 
 @pytest.fixture
