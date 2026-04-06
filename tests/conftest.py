@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from main import app
 from utils.db import Base
 from unittest.mock import AsyncMock, patch
+from middleware.security.auth import create_jwt
 
 
 # Test database URL (SQLite in-memory)
@@ -66,8 +67,10 @@ def client():
     mock_redis.sadd = AsyncMock(return_value=1)
     mock_redis.aclose = AsyncMock(return_value=None)
     
-    # Patch Redis connection in both main module and in redis.asyncio
-    with patch("redis.asyncio.from_url", return_value=mock_redis):
+    # Patch Redis connection - make from_url an AsyncMock that returns the mock_redis
+    mock_from_url = AsyncMock(return_value=mock_redis)
+    
+    with patch("redis.asyncio.from_url", mock_from_url):
         with TestClient(app) as client:
             client.app.state.redis = mock_redis
             yield client
@@ -90,26 +93,26 @@ def event_loop():
 
 @pytest.fixture
 def token():
-    """Generic test token."""
-    return "test-token-12345"
+    """Generic test token (valid JWT)."""
+    return create_jwt("test-user-123", "user")
 
 
 @pytest.fixture
 def admin_token():
-    """Admin user test token."""
-    return "admin-token-12345"
+    """Admin user test token (valid JWT)."""
+    return create_jwt("admin-user-123", "admin")
 
 
 @pytest.fixture
 def readonly_token():
-    """Readonly user test token."""
-    return "readonly-token-12345"
+    """Readonly user test token (valid JWT)."""
+    return create_jwt("readonly-user-123", "readonly")
 
 
 @pytest.fixture
 def guest_token():
-    """Guest user test token."""
-    return "guest-token-12345"
+    """Guest user test token (valid JWT)."""
+    return create_jwt("guest-user-123", "guest")
 
 
 @pytest.fixture
