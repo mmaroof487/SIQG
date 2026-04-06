@@ -45,6 +45,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install --upgrade pip
           cd gateway
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov
@@ -52,7 +53,7 @@ jobs:
       - name: Run tests
         run: |
           cd gateway
-          pytest ../tests/ -v --cov=. --cov-report=term-missing --cov-report=xml --cov-report=html
+          PYTHONPATH=. pytest ../tests/ -v --cov=. --cov-report=term-missing --cov-report=xml --cov-report=html
         env:
           SECRET_KEY: "ci-test-secret-key-do-not-use-in-production"
           ENCRYPTION_KEY: "12345678901234567890123456789012"
