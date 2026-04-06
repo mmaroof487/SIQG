@@ -42,10 +42,20 @@ else
   exit 1
 fi
 
+# Clean up old containers and volumes before starting
+echo -e "${YELLOW}Cleaning up old containers...${NC}"
+"${DC[@]}" down --remove-orphans -v 2>/dev/null || true
+
 echo -e "${YELLOW}Starting services...${NC}"
 if ! "${DC[@]}" up -d --build --remove-orphans; then
   echo -e "${RED}❌ Failed to start services${NC}"
-  exit 1
+  echo -e "${YELLOW}Attempting cleanup and restart...${NC}"
+  "${DC[@]}" down -v 2>/dev/null || true
+  sleep 5
+  if ! "${DC[@]}" up -d --build --remove-orphans; then
+    echo -e "${RED}❌ Failed to start services on retry${NC}"
+    exit 1
+  fi
 fi
 
 echo -e "${YELLOW}Waiting 30s for services to stabilize...${NC}"
@@ -570,6 +580,10 @@ echo -e "\n${BLUE}════════════════════�
 echo -e "Phases Passed: ${GREEN}${TOTAL_PASSED}/${#PHASE_RESULTS[@]}${NC}"
 echo -e "Phases Failed: ${RED}${TOTAL_FAILED}/${#PHASE_RESULTS[@]}${NC}"
 echo -e "${BLUE}════════════════════════════════════════════════════════════${NC}\n"
+
+# Clean up containers and volumes
+echo -e "${YELLOW}Cleaning up containers...${NC}"
+"${DC[@]}" down --remove-orphans -v 2>/dev/null || true
 
 if [ $TOTAL_FAILED -eq 0 ]; then
   echo -e "${GREEN}✅ ALL PHASES PASSED - Argus is production-ready!${NC}\n"

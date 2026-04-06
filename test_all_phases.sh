@@ -49,10 +49,20 @@ else
   exit 1
 fi
 
+# Clean up old containers and volumes before starting
+echo -e "${YELLOW}Cleaning up old containers...${NC}"
+"${DC[@]}" down --remove-orphans -v 2>/dev/null || true
+
 echo -e "${YELLOW}Starting services once...${NC}"
 if ! "${DC[@]}" up -d --build --remove-orphans; then
   echo -e "${RED}❌ Failed to start services${NC}"
-  exit 1
+  echo -e "${YELLOW}Attempting cleanup and restart...${NC}"
+  "${DC[@]}" down -v 2>/dev/null || true
+  sleep 5
+  if ! "${DC[@]}" up -d --build --remove-orphans; then
+    echo -e "${RED}❌ Failed to start services on retry${NC}"
+    exit 1
+  fi
 fi
 
 echo -e "${YELLOW}Waiting 30s for services to be fully ready...${NC}"
@@ -380,6 +390,11 @@ fi
 
 TOTAL_FAILS=$((PHASE1_STATUS + PHASE2_STATUS + PHASE3_STATUS + PHASE4_STATUS + PHASE5_STATUS + PHASE6_STATUS))
 echo ""
+
+# Clean up containers and volumes
+echo -e "${YELLOW}Cleaning up containers...${NC}"
+"${DC[@]}" down --remove-orphans -v 2>/dev/null || true
+
 if [ $TOTAL_FAILS -eq 0 ]; then
   echo -e "${GREEN}✅ All phases (1-6) passed successfully!${NC}"
   exit 0
