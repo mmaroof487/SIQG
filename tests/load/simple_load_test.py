@@ -19,18 +19,18 @@ class LoadTester:
         self.errors = 0
         self.start_time = None
         self.token = None
-        
+
     def make_request(self, method: str, url: str, data: dict = None, headers: dict = None) -> tuple:
         """Make an HTTP request and measure latency."""
         start = time.time()
         try:
             if headers is None:
                 headers = {}
-            
+
             if data is not None:
                 data = json.dumps(data).encode('utf-8')
                 headers['Content-Type'] = 'application/json'
-            
+
             req = urllib.request.Request(url, data=data, headers=headers, method=method)
             with urllib.request.urlopen(req, timeout=5) as response:
                 latency = (time.time() - start) * 1000
@@ -42,7 +42,7 @@ class LoadTester:
         except Exception as e:
             latency = (time.time() - start) * 1000
             return latency, 0, str(e)
-    
+
     def setup_auth(self):
         """Register and get auth token (simplified)."""
         try:
@@ -63,13 +63,13 @@ class LoadTester:
         except Exception as e:
             print(f"Auth setup: {e}")
         return False
-    
+
     def run_single_request(self, query_type: str) -> Dict:
         """Run a single request and measure latency."""
         headers = {}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
-        
+
         try:
             if query_type == "health":
                 latency, status, error = self.make_request("GET", f"{BASE_URL}/health", headers=headers)
@@ -98,11 +98,11 @@ class LoadTester:
                 )
             else:
                 return None
-            
+
             success = status < 400 and error is None
             if not success:
                 self.errors += 1
-            
+
             return {
                 "type": query_type,
                 "latency_ms": latency,
@@ -118,49 +118,49 @@ class LoadTester:
                 "success": False,
                 "error": str(e)
             }
-    
+
     def simulate_concurrent_load(self):
         """Simulate concurrent users making requests."""
         print(f"Starting load test: ~{self.num_users} sequential requests, {self.duration}s target")
         print(f"Target: {BASE_URL}")
         print()
-        
+
         # Set up auth (skip token verification for simplicity)
         self.setup_auth()
-        
+
         requests_made = 0
         self.start_time = time.time()
         request_types = ["health", "metrics", "simple_query", "complex_query", "dry_run"]
         type_index = 0
-        
+
         while time.time() - self.start_time < self.duration:
             # Cycle through different request types
             query_type = request_types[type_index % len(request_types)]
             type_index += 1
-            
+
             result = self.run_single_request(query_type)
             if result:
                 self.results.append(result)
                 requests_made += 1
-                
+
                 # Print progress
                 if requests_made % 10 == 0:
                     elapsed = time.time() - self.start_time
                     rate = requests_made / elapsed if elapsed > 0 else 0
                     print(f"[{elapsed:.1f}s] Made {requests_made} requests ({rate:.1f} req/s)")
-        
+
         return requests_made
-    
+
     def print_results(self):
         """Print summary statistics."""
         if not self.results:
             print("No results to report!")
             return
-        
+
         elapsed = time.time() - self.start_time
         latencies = [r["latency_ms"] for r in self.results if r["success"]]
         unsuccessful = len([r for r in self.results if not r["success"]])
-        
+
         print("\n" + "="*60)
         print("LOAD TEST RESULTS")
         print("="*60)
@@ -171,7 +171,7 @@ class LoadTester:
         print(f"Duration: {elapsed:.1f}s")
         print(f"Request Rate: {len(self.results)/elapsed:.1f} req/s")
         print()
-        
+
         if latencies:
             print("LATENCY STATISTICS (ms)")
             print("-" * 60)
@@ -188,7 +188,7 @@ class LoadTester:
                     print(f"P99: {sorted(latencies)[p99_idx]:.2f}ms")
                 print(f"StdDev: {statistics.stdev(latencies):.2f}ms")
             print()
-        
+
         # Breakdown by request type
         print("BREAKDOWN BY REQUEST TYPE")
         print("-" * 60)
@@ -199,13 +199,13 @@ class LoadTester:
                 by_type[req_type] = []
             if result["success"]:
                 by_type[req_type].append(result["latency_ms"])
-        
+
         for req_type in sorted(by_type.keys()):
             lats = by_type[req_type]
             if lats:
                 p95 = sorted(lats)[int(len(lats)*0.95)] if len(lats) > 1 else lats[0]
                 print(f"{req_type:20s}: {len(lats):4d} requests, avg: {statistics.mean(lats):7.2f}ms, p95: {p95:.2f}ms")
-        
+
         print()
         if len(self.results) > 0:
             print(f"Success Rate: {len(latencies)/len(self.results)*100:.1f}%")

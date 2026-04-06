@@ -170,6 +170,7 @@ bash demo_cli.sh
 ```
 
 **Demo includes:**
+
 - ✓ User registration and authentication
 - ✓ SQL query execution with latency tracking
 - ✓ Natural language to SQL conversion
@@ -183,11 +184,13 @@ bash demo_cli.sh
 ### Web Dashboard Demo
 
 For a visual demo, the web dashboard is available at:
+
 ```
 http://localhost:3000
 ```
 
 Includes:
+
 - Query page with NL input and results
 - Live metrics dashboard (latency, cache hit rates)
 - System health status page

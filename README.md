@@ -139,12 +139,12 @@ bash demo_cli.sh
 ```
 
 The demo showcases:
-✅ User registration and authentication  
-✅ SQL execution with latency tracking  
-✅ Natural language to SQL conversion  
-✅ Query explanation in plain English  
-✅ Cost estimation (dry-run mode)  
-✅ System health and metrics  
+✅ User registration and authentication
+✅ SQL execution with latency tracking
+✅ Natural language to SQL conversion
+✅ Query explanation in plain English
+✅ Cost estimation (dry-run mode)
+✅ System health and metrics
 
 **Sample output:** See [DEMO_OUTPUT.md](DEMO_OUTPUT.md)
 
@@ -155,6 +155,7 @@ http://localhost:3000
 ```
 
 Three interactive pages:
+
 1. **Query Editor** — English input + SQL + results (cached in 3ms!)
 2. **Metrics** — Live latency charts, cache hits, query heatmap
 3. **Health** — System status (PostgreSQL, Redis, circuit breaker)
@@ -361,7 +362,7 @@ Health/Metrics Endpoints:
 ### What This Means
 
 ✅ **Sub-30ms P95 latency** = Fast enough for real-time UI dashboards
-✅ **Sustained 74 req/s** = Handles 50+ concurrent users without degradation  
+✅ **Sustained 74 req/s** = Handles 50+ concurrent users without degradation
 ✅ **Minimal P99 gap** (33.73ms vs 28.55ms P95) = Predictable performance, few outliers
 
 ### Run Your Own Load Test
