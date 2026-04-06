@@ -25,10 +25,12 @@ sys.path.insert(0, str(gateway_dir))
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import AsyncClient
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from main import app
 from utils.db import Base
+from pytest_asyncio import fixture as pytest_asyncio_fixture
 
 
 # Test database URL (SQLite in-memory)
@@ -52,8 +54,15 @@ async def test_db():
 
 @pytest.fixture
 def client():
-    """FastAPI test client."""
+    """FastAPI test client (synchronous)."""
     with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+async def async_client():
+    """FastAPI async test client for use in async tests."""
+    async with AsyncClient(app=app, base_url="http://test") as client:
         yield client
 
 
@@ -89,7 +98,7 @@ def guest_token():
     return "guest-token-12345"
 
 
-@pytest.fixture
+@pytest_asyncio_fixture
 async def redis_client():
     """Mock Redis client for testing."""
     from unittest.mock import AsyncMock
@@ -103,29 +112,29 @@ async def redis_client():
     return client
 
 
-@pytest.fixture
+@pytest_asyncio_fixture
 async def primary_session():
     """Primary database session."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
+
     yield Session
-    
+
     await engine.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio_fixture
 async def readonly_session():
     """Readonly database session."""
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
+
     Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    
+
     yield Session
-    
+
     await engine.dispose()

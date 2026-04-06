@@ -9,18 +9,18 @@ Tests for:
 """
 import pytest
 import json
-from httpx import AsyncClient
+from unittest.mock import AsyncMock, patch
 from config import settings
 
 
 @pytest.mark.asyncio
-async def test_circuit_breaker_open_blocks_query(client: AsyncClient, token: str, redis_client):
+async def test_circuit_breaker_open_blocks_query(client, token: str, redis_client):
     """Test that circuit breaker blocks queries when OPEN."""
     # Set circuit breaker to OPEN
     await redis_client.set("argus:circuit_breaker:state", "open")
 
     # Try to execute a query
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {token}"},
         json={"query": "SELECT 1"},
@@ -34,10 +34,10 @@ async def test_circuit_breaker_open_blocks_query(client: AsyncClient, token: str
 
 
 @pytest.mark.asyncio
-async def test_encryption_roundtrip(client: AsyncClient, admin_token: str, primary_session):
+async def test_encryption_roundtrip(client, admin_token: str, primary_session):
     """Test that SSN values are encrypted before storage."""
     # INSERT with SSN
-    insert_response = await client.post(
+    insert_response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": "INSERT INTO users (username, email, hashed_password, ssn, role) VALUES ('encrypt_test', 'encrypt@test.com', 'pass', '123-45-6789', 'admin')"},
@@ -62,10 +62,10 @@ async def test_encryption_roundtrip(client: AsyncClient, admin_token: str, prima
 
 
 @pytest.mark.asyncio
-async def test_rbac_email_masking_readonly(client: AsyncClient, readonly_session, readonly_token: str):
+async def test_rbac_email_masking_readonly(client, readonly_session, readonly_token: str):
     """Test that readonly role sees masked email (u***@example.com)."""
     # Query email as readonly
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {readonly_token}"},
         json={"query": "SELECT email FROM users LIMIT 1"},
@@ -84,9 +84,9 @@ async def test_rbac_email_masking_readonly(client: AsyncClient, readonly_session
 
 
 @pytest.mark.asyncio
-async def test_denied_columns_stripped_readonly(client: AsyncClient, readonly_token: str):
+async def test_denied_columns_stripped_readonly(client, readonly_token: str):
     """Test that SELECT * as readonly strips hashed_password and internal_notes."""
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {readonly_token}"},
         json={"query": "SELECT * FROM users LIMIT 1"},
@@ -98,6 +98,7 @@ async def test_denied_columns_stripped_readonly(client: AsyncClient, readonly_to
     assert data.get("rows"), "No rows returned"
     first_row = data["rows"][0]
 
+
     # Denied columns should NOT be present
     assert "hashed_password" not in first_row, f"hashed_password leaked to readonly: {list(first_row.keys())}"
     assert "internal_notes" not in first_row, f"internal_notes leaked to readonly: {list(first_row.keys())}"
@@ -107,9 +108,9 @@ async def test_denied_columns_stripped_readonly(client: AsyncClient, readonly_to
 
 
 @pytest.mark.asyncio
-async def test_admin_sees_all_columns(client: AsyncClient, admin_token: str):
+async def test_admin_sees_all_columns(client, admin_token: str):
     """Test that admin role sees all columns including denied ones."""
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": "SELECT * FROM users LIMIT 1"},
@@ -127,10 +128,10 @@ async def test_admin_sees_all_columns(client: AsyncClient, admin_token: str):
 
 
 @pytest.mark.asyncio
-async def test_sensitive_field_blocks_direct_query(client: AsyncClient, admin_token: str):
+async def test_sensitive_field_blocks_direct_query(client, admin_token: str):
     """Test that queries referencing sensitive fields are blocked."""
     # Try to SELECT hashed_password directly
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={"query": "SELECT hashed_password FROM users"},
@@ -143,12 +144,12 @@ async def test_sensitive_field_blocks_direct_query(client: AsyncClient, admin_to
 
 
 @pytest.mark.asyncio
-async def test_sensitive_field_insert_allowed(client: AsyncClient, admin_token: str):
+async def test_sensitive_field_insert_allowed(client, admin_token: str):
     """Test that INSERT with sensitive fields is allowed (populate DB)."""
     import time
     ts = str(int(time.time()))
 
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {admin_token}"},
         json={
@@ -161,9 +162,9 @@ async def test_sensitive_field_insert_allowed(client: AsyncClient, admin_token: 
 
 
 @pytest.mark.asyncio
-async def test_guest_role_sees_no_denied_columns(client: AsyncClient, guest_token: str):
+async def test_guest_role_sees_no_denied_columns(client, guest_token: str):
     """Test that guest role (most restricted) also has denied columns stripped."""
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {guest_token}"},
         json={"query": "SELECT * FROM users LIMIT 1"},
@@ -179,9 +180,9 @@ async def test_guest_role_sees_no_denied_columns(client: AsyncClient, guest_toke
 
 
 @pytest.mark.asyncio
-async def test_masking_applied_across_large_result_set(client: AsyncClient, readonly_token: str):
+async def test_masking_applied_across_large_result_set(client, readonly_token: str):
     """Test that masking is applied to ALL rows, not just first."""
-    response = await client.post(
+    response = client.post(
         "/api/v1/query/execute",
         headers={"Authorization": f"Bearer {readonly_token}"},
         json={"query": "SELECT email FROM users LIMIT 10"},
