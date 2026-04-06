@@ -1,10 +1,6 @@
 # Argus — Secure Intelligent Query Gateway
 
-> **A production-ready database middleware that turns PostgreSQL into a secure, intelligent query service.**
->
-> FastAPI + 6-layer pipeline (Security → Performance → Execution → Observability → Hardening → AI).
-> **7/7 End-to-End Test Phases Passing — Complete User Journey Validated.**
-
+[![CI](https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml/badge.svg)](https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml)
 ![E2E Tests: 7/7 Passing](https://img.shields.io/badge/E2E%20Tests-7%2F7%20Passing-brightgreen?style=flat-square)
 ![Unit Tests: 150+](https://img.shields.io/badge/Unit%20Tests-150%2B-brightgreen?style=flat-square)
 ![Code Coverage: 71%+](https://img.shields.io/badge/Coverage-71%25%2B-brightgreen?style=flat-square)
