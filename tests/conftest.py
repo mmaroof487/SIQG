@@ -21,15 +21,31 @@ gateway_dir = project_root / "gateway"  # Gateway module directory
 sys.path.insert(0, str(project_root))  # Add project root for 'from gateway...' imports
 sys.path.insert(0, str(gateway_dir))   # Add gateway dir for relative imports within gateway
 
+# Support Docker container environment where gateway code is mounted at /app
+# and tests are mounted at /app/tests, so conftest is at /app/tests/conftest.py
+if not gateway_dir.exists() and Path("/app").exists():
+    # Running in Docker container
+    sys.path.insert(0, "/app")
+    gateway_dir = Path("/app")
+
 import pytest
 from fastapi.testclient import TestClient
 from httpx import AsyncClient
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from gateway.main import app
-from gateway.utils.db import Base
+
+# Try importing from gateway.main (local dev) or main (Docker)
+try:
+    from gateway.main import app
+    from gateway.utils.db import Base
+    from gateway.middleware.security.auth import create_jwt
+except ModuleNotFoundError:
+    # Running in Docker where gateway is at /app
+    from main import app
+    from utils.db import Base
+    from middleware.security.auth import create_jwt
+
 from unittest.mock import AsyncMock, patch, MagicMock
-from gateway.middleware.security.auth import create_jwt
 
 
 # Test database URL (SQLite in-memory)
@@ -144,8 +160,16 @@ def client():
 
     # Patch IP filter at the call site to skip checks in tests
     # Also patch Redis for operations that aren't skipped
+    # Use appropriate path for local vs Docker environment
+    try:
+        ip_filter_path = "gateway.routers.v1.query.check_ip_filter"
+        __import__(ip_filter_path.split('.')[0])  # Try importing gateway
+    except (ModuleNotFoundError, ImportError):
+        # Running in Docker, use direct module path
+        ip_filter_path = "routers.v1.query.check_ip_filter"
+
     with patch("redis.asyncio.from_url", new_callable=AsyncMock, return_value=mock_redis):
-        with patch("gateway.routers.v1.query.check_ip_filter", new_callable=AsyncMock):
+        with patch(ip_filter_path, new_callable=AsyncMock):
             with TestClient(app) as client:
                 client.app.state.redis = mock_redis
                 yield client
