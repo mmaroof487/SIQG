@@ -73,18 +73,30 @@ async def execute_with_timeout(
                 # Execute query. Escape colons to prevent SQLAlchemy from treating them as bind parameters
                 # (which would crash native Postgres casting like ::uuid or JSON ops).
                 safe_query = query.replace(':', '\\:')
+                logger.info(f"[EXECUTOR] Executing: {safe_query[:100]}")
                 result = await asyncio.wait_for(
                     session.execute(text(safe_query)),
                     timeout=timeout_seconds
                 )
 
+                logger.info(f"[EXECUTOR] Result type: {type(result).__name__}")
                 try:
                     rows = result.fetchall()
-                except Exception:
+                    logger.info(f"[EXECUTOR] fetchall() succeeded - got {len(rows)} rows")
+                    if len(rows) > 0:
+                        logger.info(f"[EXECUTOR] First row: {rows[0]}")
+                except Exception as e:
+                    logger.error(f"[EXECUTOR] ❌ fetchall() failed: {type(e).__name__}: {e}")
                     rows = []
-                column_names = list(result.keys()) if result.keys() else []
+
+                try:
+                    column_names = list(result.keys()) if result.keys() else []
+                except Exception as e:
+                    logger.error(f"[EXECUTOR] Error getting column names: {e}")
+                    column_names = []
+
+                logger.info(f"[EXECUTOR] Final result: {len(rows)} rows, columns: {column_names}")
                 await record_success(request)
-                logger.info(f"Query executed: {len(rows)} rows")
                 return rows, column_names
 
         except asyncio.TimeoutError:

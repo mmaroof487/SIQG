@@ -1,15 +1,16 @@
-# Circuit Breaker — Resilience Pattern (Phase 2-6)
+# Circuit Breaker — Resilience Pattern (Tier 3, Step 11)
 
 ## Overview
 
 3-state state machine that prevents cascading database failures by fast-failing requests when the database becomes unavailable.
 
-**Scope:** Implemented in Phase 2, unchanged through Phase 6.
+**Scope:** Implemented in Tier 3 (Frontend Build), Layer 3 (Execution).
 
-**Phase Integration:**
+**Integration:**
 
 - Activated in the Execution Layer (after performance checks, before DB calls)
-- See [systemarchitecture.md](systemarchitecture.md) Layer 3 for context
+- Part of Step 11 (React frontend integration) in the complete request pipeline
+- See [systemarchitecture.md](systemarchitecture.md) Tier 3 for context
 
 ---
 

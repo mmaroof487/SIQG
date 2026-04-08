@@ -4,9 +4,12 @@ import Navigation from "./components/Navigation";
 import QueryPage from "./pages/QueryPage";
 import DashboardPage from "./pages/DashboardPage";
 import HealthPage from "./pages/HealthPage";
+import AdminPage from "./pages/AdminPage";
 import "./index.css";
 
 function App() {
+	const token = localStorage.getItem("token");
+
 	return (
 		<Router>
 			<div className="min-h-screen bg-slate-50">
@@ -16,6 +19,7 @@ function App() {
 						<Route path="/" element={<QueryPage />} />
 						<Route path="/dashboard" element={<DashboardPage />} />
 						<Route path="/health" element={<HealthPage />} />
+						<Route path="/admin" element={<AdminPage token={token} />} />
 					</Routes>
 				</main>
 			</div>

@@ -16,11 +16,11 @@ import asyncio
 import time
 import json
 from config import settings
-from middleware.security.auth import get_current_user
+from middleware.security.auth import get_current_user, validate_api_key_scope
 from middleware.security.ip_filter import check_ip_filter
 from middleware.security.validator import validate_query
 from middleware.security.rate_limiter import check_rate_limit
-from middleware.security.rbac import check_rbac, apply_rbac_masking
+from middleware.security.rbac import check_rbac, apply_rbac_masking, check_time_based_access
 from middleware.security.encryption import encrypt_query_values, decrypt_rows
 from middleware.performance.fingerprinter import fingerprint_query, extract_tables_from_query
 from middleware.performance.cache import check_cache, write_cache, invalidate_table_cache
@@ -31,7 +31,7 @@ from middleware.performance.complexity import score_complexity
 from middleware.observability.metrics import increment, record_latency
 from middleware.observability.heatmap import record_table_access
 from middleware.observability.webhooks import send_alert
-from middleware.execution.analyzer import run_explain_analyze, generate_index_suggestions, log_slow_query
+from middleware.execution.analyzer import run_explain_analyze, generate_index_suggestions, log_slow_query, build_query_recommendation
 from middleware.execution.executor import execute_with_timeout
 from middleware.observability.audit import write_audit_log
 from utils.honeypot import check_honeypot
@@ -111,27 +111,43 @@ async def execute_query(
         logger.debug(f"[{trace_id}] ✅ Honeypot check passed")
 
         # GUARDRAIL: Sensitive field protection (centralized via settings.sensitive_fields)
+        # Block explicit references to sensitive fields in queries
+        # Allow SELECT * (denied columns will be filtered after execution)
+        query_upper = payload.query.strip().upper()
+        is_select = query_upper.startswith("SELECT")
         query_lower = payload.query.lower()
-        for field in settings.sensitive_fields:
-            if field in query_lower and not payload.query.strip().upper().startswith("INSERT"):
-                logger.warning(f"[{trace_id}] ⚠️ Sensitive field '{field}' detected in query")
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "blocked": True,
-                        "block_reasons": [f"Query references sensitive field: {field}"],
-                        "suggested_fix": "Remove the sensitive field from your query. Safe columns: id, username, email, role, is_active, created_at",
-                    }
-                )
+
+        # Check: Does the query explicitly name a sensitive field?
+        # (not just in comments, but as actual column reference)
+        has_select_star = "SELECT *" in query_upper or "SELECT  *" in query_upper
+
+        if not has_select_star:
+            # Query doesn't have SELECT * — check if it explicitly names sensitive fields
+            for field in settings.sensitive_fields:
+                if field in query_lower:
+                    logger.warning(f"[{trace_id}] ⚠️ Sensitive field '{field}' detected in query")
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "blocked": True,
+                            "block_reasons": [f"Query references sensitive field: {field}"],
+                            "suggested_fix": "Remove the sensitive field from your query. Safe columns: id, username, email, role, is_active, created_at",
+                        }
+                    )
+
         logger.debug(f"[{trace_id}] ✅ Sensitive field check passed")
 
-        # Check rate limit
-        await check_rate_limit(request, request.state.user_id)
-        logger.debug(f"[{trace_id}] ✅ Rate limit check passed")
+        # Check rate limit (with per-role limits: admin=500, readonly=60, guest=10)
+        await check_rate_limit(request, request.state.user_id, request.state.role)
+        logger.debug(f"[{trace_id}] ✅ Rate limit check passed ({request.state.role} tier)")
 
         # Check RBAC permissions
         await check_rbac(request)
         logger.debug(f"[{trace_id}] ✅ RBAC check passed")
+
+        # Check time-based access rules (e.g., readonly only 09:00-17:00)
+        await check_time_based_access(request)
+        logger.debug(f"[{trace_id}] ✅ Time-based access check passed")
 
         # === LAYER 2: PERFORMANCE OPTIMIZATIONS ===
         # Determine query type (SELECT, INSERT, etc.)
@@ -142,6 +158,49 @@ async def execute_query(
         fingerprint = fingerprint_query(clean_query)
         affected_tables = extract_tables_from_query(clean_query)
         logger.debug(f"[{trace_id}] Fingerprint: {fingerprint[:8]}... Tables: {affected_tables}")
+
+        # Check API key scoping restrictions (if authenticated with API key)
+        await validate_api_key_scope(request, clean_query, affected_tables)
+        logger.debug(f"[{trace_id}] ✅ API key scope check passed")
+
+        # Check query whitelist mode (if enabled, only approved fingerprints execute)
+        if settings.whitelist_mode_enabled:
+            redis = request.app.state.redis
+            whitelist_key = f"argus:whitelist:{fingerprint}"
+
+            # Check Redis cache first (fast path)
+            is_whitelisted = await redis.exists(whitelist_key)
+
+            if not is_whitelisted:
+                # Fall back to database check
+                try:
+                    from models import QueryWhitelist
+                    from sqlalchemy import select
+
+                    async with PrimarySession() as session:
+                        stmt = select(QueryWhitelist).where(QueryWhitelist.query_fingerprint == fingerprint)
+                        result = await session.execute(stmt)
+                        whitelist_record = result.scalars().first()
+
+                        if whitelist_record:
+                            # Cache the whitelist status
+                            await redis.setex(whitelist_key, 86400, "1")  # Cache for 24h
+                            is_whitelisted = True
+                except Exception as e:
+                    logger.warning(f"Whitelist check error: {e}")
+
+            if not is_whitelisted:
+                logger.warning(f"[{trace_id}] ❌ Query blocked by whitelist mode")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "blocked": True,
+                        "block_reasons": ["Query fingerprint not in whitelist. System is in locked mode."],
+                        "suggested_fix": f"Fingerprint: {fingerprint}. Contact admin to approve this query pattern.",
+                    }
+                )
+
+        logger.debug(f"[{trace_id}] ✅ Whitelist check passed")
 
         # **Cache Check** - For SELECT queries, check cache first
         if is_select:
@@ -173,6 +232,7 @@ async def execute_query(
                         "slow_query": False,
                         "index_suggestions": cached_analysis.get("index_suggestions", []),
                         "complexity": score_complexity(clean_query),
+                        "recommendation": cached_analysis.get("recommendation", "✅ Query is cached."),
                     },
                 )
 
@@ -210,7 +270,7 @@ async def execute_query(
         # === DRY RUN MODE ===
         if payload.dry_run:
             logger.info(f"[{trace_id}] Dry run mode - skipping execution")
-            complexity = score_complexity(clean_query)
+            complexity_dict = score_complexity(clean_query)
             return QueryResult(
                 trace_id=trace_id,
                 query_type=query_type,
@@ -226,7 +286,7 @@ async def execute_query(
                     "rows_processed": 0,
                     "total_cost": cost if cost is not None else 0.0,
                     "slow_query": False,
-                    "complexity": complexity,
+                    "complexity": complexity_dict,
                     "index_suggestions": [],
                     "pipeline_checks": {
                         "ip_filter": "pass",
@@ -276,7 +336,8 @@ async def execute_query(
         # === LAYER 4: OBSERVABILITY + INTELLIGENCE ===
         explain_result = {}
         suggestions = []
-        complexity = score_complexity(clean_query)
+        complexity_dict = score_complexity(clean_query)
+        complexity = complexity_dict.get("score", 0)  # Extract numeric score for recommendations
 
         if is_select:
             try:
@@ -350,6 +411,21 @@ async def execute_query(
                     "rows_processed": explain_result.get("rows_processed", 0),
                     "total_cost": explain_result.get("total_cost", cost if cost is not None else 0.0),
                     "index_suggestions": suggestions,
+                    "recommendation": build_query_recommendation(
+                        clean_query,
+                        complexity,
+                        explain_result.get("execution_time_ms", latency_ms),
+                        {
+                            "node_type": explain_result.get("scan_type", "Unknown"),
+                            "total_cost": explain_result.get("total_cost", 0),
+                            "planning_time": 0,
+                            "execution_time": explain_result.get("execution_time_ms", 0),
+                            "rows_scanned": explain_result.get("rows_processed", 0),
+                            "rows_returned": explain_result.get("rows_processed", 0),
+                            "full_plan": explain_result.get("raw_plan"),
+                        },
+                        settings.slow_query_threshold_ms,
+                    ),
                 }
             }
             await write_cache(
@@ -383,6 +459,21 @@ async def execute_query(
                 "slow_query": is_slow,
                 "index_suggestions": suggestions,
                 "complexity": complexity,
+                "recommendation": build_query_recommendation(
+                    clean_query,
+                    complexity,
+                    explain_result.get("execution_time_ms", latency_ms),
+                    {
+                        "node_type": explain_result.get("scan_type", "Unknown"),
+                        "total_cost": explain_result.get("total_cost", 0),
+                        "planning_time": 0,
+                        "execution_time": explain_result.get("execution_time_ms", 0),
+                        "rows_scanned": explain_result.get("rows_processed", 0),
+                        "rows_returned": explain_result.get("rows_processed", 0),
+                        "full_plan": explain_result.get("raw_plan"),
+                    },
+                    settings.slow_query_threshold_ms,
+                ) if is_select else None,
             } if is_select else None,
         )
 

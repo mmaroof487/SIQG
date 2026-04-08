@@ -1,7 +1,7 @@
 """User and authentication models."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SAEnum
+from sqlalchemy import Column, String, Boolean, DateTime, Enum as SAEnum, JSON, Integer
 from sqlalchemy.dialects.postgresql import UUID
 import enum
 from utils.db import Base
@@ -32,7 +32,7 @@ class User(Base):
 
 
 class APIKey(Base):
-    """API Key for programmatic access."""
+    """API Key for programmatic access with scoping support."""
     __tablename__ = "api_keys"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -43,6 +43,11 @@ class APIKey(Base):
     grace_until = Column(DateTime, nullable=True)  # for rotation grace period
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=True)
+
+    # Scoping fields - restrict access to specific tables and operations
+    allowed_tables = Column(JSON, nullable=True, default=None)  # ["users", "orders"] or None (all tables)
+    allowed_query_types = Column(JSON, nullable=True, default=None)  # ["SELECT"] or None (all types)
+    rate_limit_override = Column(Integer, nullable=True)  # Optional per-key rate limit in req/min
 
     def __repr__(self):
         return f"<APIKey {self.label or self.id}>"
@@ -61,3 +66,18 @@ class IPRule(Base):
 
     def __repr__(self):
         return f"<IPRule {self.ip_address} {self.rule_type}>"
+
+
+class QueryWhitelist(Base):
+    """Query fingerprint whitelist for locked-down execution mode."""
+    __tablename__ = "query_whitelist"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    query_fingerprint = Column(String(64), nullable=False, unique=True, index=True)  # SHA-256 hex
+    description = Column(String(255), nullable=True)
+    approved_by = Column(UUID(as_uuid=True), nullable=True)  # User ID who approved
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=True)  # Optional expiration
+
+    def __repr__(self):
+        return f"<QueryWhitelist {self.query_fingerprint[:16]}...>"

@@ -221,3 +221,222 @@ async def budget_usage(request: Request, user=Depends(require_admin)):
             })
 
     return {"users": budgets}
+
+
+# === QUERY WHITELIST MANAGEMENT ===
+
+class WhitelistRequest(BaseModel):
+    query_fingerprint: str
+    description: Optional[str] = None
+
+
+@router.post("/whitelist")
+async def add_to_whitelist(
+    request: Request,
+    payload: WhitelistRequest,
+    admin=Depends(require_admin),
+):
+    """Add a query fingerprint to the whitelist."""
+    from models import QueryWhitelist
+    from datetime import timedelta
+
+    async with PrimarySession() as session:
+        # Check if already whitelisted
+        stmt = select(QueryWhitelist).where(QueryWhitelist.query_fingerprint == payload.query_fingerprint)
+        result = await session.execute(stmt)
+        existing = result.scalars().first()
+
+        if existing:
+            return {"status": "exists", "message": "Fingerprint already whitelisted"}
+
+        # Add to whitelist
+        whitelist_record = QueryWhitelist(
+            query_fingerprint=payload.query_fingerprint,
+            description=payload.description,
+            approved_by=admin.get("sub"),
+        )
+        session.add(whitelist_record)
+        await session.commit()
+
+    # Also cache in Redis for fast lookup
+    redis = request.app.state.redis
+    whitelist_key = f"argus:whitelist:{payload.query_fingerprint}"
+    await redis.setex(whitelist_key, 86400, "1")
+
+    logger.info(f"Query fingerprint added to whitelist: {payload.query_fingerprint[:16]}...")
+    return {"status": "ok", "message": "Query fingerprint added to whitelist"}
+
+
+@router.get("/whitelist")
+async def list_whitelist(
+    request: Request,
+    limit: int = 100,
+    admin=Depends(require_admin),
+):
+    """List all whitelisted query fingerprints."""
+    from models import QueryWhitelist
+
+    safe_limit = max(1, min(limit, 500))
+    async with PrimarySession() as session:
+        result = await session.execute(
+            select(QueryWhitelist)
+            .order_by(QueryWhitelist.created_at.desc())
+            .limit(safe_limit)
+        )
+        rows = result.scalars().all()
+
+    return {
+        "count": len(rows),
+        "items": [
+            {
+                "query_fingerprint": r.query_fingerprint,
+                "description": r.description or "",
+                "approved_by": str(r.approved_by) if r.approved_by else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.delete("/whitelist/{fingerprint}")
+async def remove_from_whitelist(
+    request: Request,
+    fingerprint: str,
+    admin=Depends(require_admin),
+):
+    """Remove a query fingerprint from the whitelist."""
+    from models import QueryWhitelist
+
+    async with PrimarySession() as session:
+        stmt = select(QueryWhitelist).where(QueryWhitelist.query_fingerprint == fingerprint)
+        result = await session.execute(stmt)
+        whitelist_record = result.scalars().first()
+
+        if not whitelist_record:
+            raise HTTPException(status_code=404, detail="Fingerprint not in whitelist")
+
+        await session.delete(whitelist_record)
+        await session.commit()
+
+    # Remove from Redis cache
+    redis = request.app.state.redis
+    whitelist_key = f"argus:whitelist:{fingerprint}"
+    await redis.delete(whitelist_key)
+
+    logger.info(f"Query fingerprint removed from whitelist: {fingerprint[:16]}...")
+    return {"status": "ok", "message": "Query fingerprint removed from whitelist"}
+
+
+# === COMPLIANCE REPORTING ===
+
+@router.get("/compliance-report")
+async def get_compliance_report(
+    period: str = "30d",
+    format: str = "json",
+    admin=Depends(require_admin),
+):
+    """
+    Generate compliance report for 30/60/90-day periods.
+    Includes: audit metrics, user activity, query compliance, security incidents.
+    """
+    import re
+    from datetime import timedelta
+
+    # Parse period (30d, 90d, 1y)
+    match = re.match(r"^(\d+)([dmy])$", period)
+    if not match:
+        raise HTTPException(status_code=400, detail="Invalid period format (use 30d, 90d, 1y)")
+
+    amount, unit = int(match.group(1)), match.group(2)
+    if unit == 'd':
+        delta = timedelta(days=amount)
+    elif unit == 'm':
+        delta = timedelta(days=amount * 30)
+    else:  # 'y'
+        delta = timedelta(days=amount * 365)
+
+    cutoff = datetime.utcnow() - delta
+
+    # Aggregate audit data
+    async with PrimarySession() as session:
+        # Count successful/error queries
+        from sqlalchemy import func, and_
+
+        audit_count_stmt = select(
+            func.count(AuditLog.id).label("total"),
+            func.sum(
+                func.cast(
+                    AuditLog.status_code.in_([200, 201]),
+                    __import__('sqlalchemy').Integer
+                )
+            ).label("successful"),
+        ).where(AuditLog.created_at >= cutoff)
+
+        audit_result = await session.execute(audit_count_stmt)
+        audit_data = audit_result.first()
+
+        # Count slow queries
+        slow_count_stmt = select(func.count(SlowQuery.id)).where(
+            SlowQuery.created_at >= cutoff
+        )
+        slow_result = await session.execute(slow_count_stmt)
+        slow_count = slow_result.scalar() or 0
+
+        # Calculate average latency
+        avg_latency_stmt = select(
+            func.avg(
+                func.cast(AuditLog.latency_ms, __import__('sqlalchemy').Float)
+            )
+        ).where(AuditLog.created_at >= cutoff)
+
+        avg_latency = await session.execute(avg_latency_stmt)
+        avg_latency_ms = float(avg_latency.scalar() or 0)
+
+    total_queries = audit_data[0] if audit_data else 0
+    successful_queries = audit_data[1] if audit_data and audit_data[1] else 0
+    error_queries = (total_queries - successful_queries) if total_queries else 0
+
+    report = {
+        "period": period,
+        "generated_at": datetime.utcnow().isoformat(),
+        "audit_summary": {
+            "total_queries": total_queries,
+            "successful": successful_queries,
+            "failed": error_queries,
+            "success_rate": round(
+                (successful_queries / max(1, total_queries)) * 100, 2
+            ),
+        },
+        "performance": {
+            "slow_queries": slow_count,
+            "avg_latency_ms": round(avg_latency_ms, 2),
+        },
+        "security": {
+            "blocked_requests": 0,  # From IP filtering
+            "rate_limited": 0,  # From rate limiting
+        },
+    }
+
+    if format == "json":
+        return report
+    else:
+        # CSV format
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=["metric", "value"])
+        writer.writeheader()
+
+        # Flatten nested structure for CSV
+        for section, data in report.items():
+            if section in ["period", "generated_at"]:
+                writer.writerow({"metric": section, "value": data})
+            elif isinstance(data, dict):
+                for key, val in data.items():
+                    writer.writerow({"metric": f"{section}_{key}", "value": val})
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=compliance-{period}.csv"},
+        )

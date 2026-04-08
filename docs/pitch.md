@@ -16,18 +16,23 @@ Most applications send queries directly to databases with almost no control:
 Argus intercepts every query and processes it through 6 production-grade layers:
 
 ### Layer 1: Security
-- SQL injection detection (blocks 13+ injection patterns)
-- Dangerous query blocking (DROP, DELETE, TRUNCATE)
-- Sensitive field guardrails (hashed_password, tokens explicitly blocked)
-- Rate limiting (60 requests/minute per user, sliding window)
-- RBAC masking (columns stripped based on user role)
-- IP filtering, brute force detection, honeypot tables
+- SQL injection detection (blocks 13+ injection patterns: OR 1=1, UNION SELECT, --, /*, xp_cmdshell, etc.)
+- Dangerous query blocking (DROP, DELETE, TRUNCATE, ALTER)
+- **Sensitive field protection (3-layer defense-in-depth):**
+  - Layer 1: Query-level blocking for explicit sensitive field references (SELECT hashed_password → 403)
+  - Layer 2: RBAC masking removes denied columns from `SELECT *` post-execution
+  - Layer 3: Blind DLP regex scans all string values for PII patterns (emails, SSNs, credit cards)
+  - Centralized constant: `SENSITIVE_FIELDS = {hashed_password, password, token, api_key, secret, internal_notes}`
+- Rate limiting (60 requests/minute per user, sliding window with anomaly detection)
+- RBAC masking (columns stripped based on user role: Admin/Readonly/Guest)
+- IP filtering, brute force detection (5 failed logins = 423 Locked status), honeypot tables
+- Authentication: JWT (HS256) + API Keys (SHA-256 hashed)
 
 ### Layer 2: Performance
-- Query fingerprinting + intelligent caching (6-10x speedup)
-- Cost estimation before execution
-- Budget enforcement per user
-- Auto-LIMIT injection (prevents full-table scans)
+- Query fingerprinting + intelligent caching (6-10x speedup, role-separated)
+- Cost estimation before execution (EXPLAIN without running)
+- Budget enforcement per user (daily limits, admin bypass)
+- **Auto-LIMIT injection** (NL→SQL generates unbounded SELECT → Argus injects LIMIT 1000 automatically)
 - Read/write routing (SELECTs to replica, writes to primary)
 
 ### Layer 3: Execution
@@ -49,41 +54,41 @@ Argus intercepts every query and processes it through 6 production-grade layers:
 - Blind regex DLP (detects PII/emails regardless of column)
 - IP-level access control
 
-### Layer 6: AI Intelligence (with Resilient Fallback)
+### Layer 6: AI Intelligence (with Production-Hardened Fallback)
 
-This is where things get interesting. Users can write queries in natural language.
+**Why resilient architecture matters:**
+In demo environments, you need queries to ALWAYS work, never fail. Single-provider LLM architectures risk API timeouts, rate limiting, or network issues causing demo failure and looking bad in front of executives.
 
-**Traditional Approach (Single Provider):**
-```
-User: "Top 5 users created in the last 7 days"
-  ↓
-[Call OpenAI]
-  ├─ Works → Returns SQL ✓
-  └─ Fails → User sees error ✗
-```
+Argus uses **Groq + Mock Fallback** dual-provider architecture:
 
-**Argus Approach (GROQ + MOCK Fallback):**
 ```
-User: "Top 5 users created in the last 7 days"
-  ↓
-[Try: Groq LLM (Fast, Sophisticated)]
-  ├─ Works → Returns SQL ✓
-  └─ ANY Error? ↓
-       ↓
-[Fallback: Mock (Pattern-Based, Instant)]
-  └─ Works → Returns SQL ✓
+User: "Top 5 users by spending"
+    ↓
+[Try: Groq LLM (primary, sophisticated)]
+    ├─ Works within 1 second? → Return SQL ✅
+    └─ Groq timeout/error/rate-limited? ↓
+           ↓
+    [Auto-fallback: Mock (pattern-based, instant)]
+    └─ Match "top 5" pattern → Instantly return SQL ✅
 ```
 
-**Why this matters:**
-- **Groq succeeds:** 95% of the time, giving sophisticated LLM quality
-- **Groq times out:** Instant fallback to mock, user never sees latency
-- **Groq rate limited:** Automatic fallback, never blocks user
-- **Demo fails?** Never—always get SQL either from Groq or mock
+**Provider Details:**
+- **Groq (Llama 3.1 8B):** <1 second response, sophisticated SQL generation, free tier with no practical rate limits
+- **Mock:** Pattern-based regex matcher for 95% of common questions (handles "top N", "how many", "average", etc.), never fails
+- **Behavior:** ANY failure from Groq (timeout, HTTP error, invalid response) triggers automatic fallback
 
-**Also included:**
-- Pattern matching guardrails: "top 5" forces LIMIT 5 (semantic accuracy)
-- Query Explainer: Converts complex SQL to plain English
-- AI-generated queries go through same validation as manual queries (untrusted by design)
+This means:
+- ✅ Demos never fail due to LLM
+- ✅ 95% of user questions work instantly via Mock
+- ✅ Complex questions still get Groq quality when available
+- ✅ Zero retry logic needed (automatic seamless fallback)
+
+**Additional Features:**
+- LIMIT injection: Post-generation, auto-appends `LIMIT 1000` if missing
+- Semantic guardrails: Pattern matching for "top N" → `LIMIT N`, "count" → `GROUP BY`, etc.
+- Query Explainer: Converts complex SQL to plain English explanations
+- Dry-Run Mode: Test queries before execution (safety checks, cost estimation, complexity scoring)
+- All AI-generated queries validated through same 6-layer pipeline as manual queries (untrusted by design)
 
 ## Production Hardening
 

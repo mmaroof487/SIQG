@@ -1,15 +1,16 @@
-# Data Models — Persistent Storage (Phase 1-6)
+# Data Models — Persistent Storage (Tiers 1-6, Steps 1-32)
 
 ## Overview
 
-Core PostgreSQL data models for user management, API keys, rules, audit trails, and SLA tracking.
+Core PostgreSQL data models for user management, API keys, rules, audit trails, and SLA tracking across all 32 integration steps.
 
-**Scope:** These models are unchanged across all 6 phases.
+**Scope:** These models support every tier from Tier 1 (Security) through Tier 6 (Polish).
 
-**Phase 6 Notes:**
+**Notes:**
 
-- No new database tables added in Phase 6
-- AI features (NL→SQL, Explainer) are stateless endpoints
+- No new database tables added in Tier 6 (Steps 25-32)
+- AI features (NL→SQL, query explanation, anomaly explanation) are stateless endpoints
+- New Tier 6 features (HMAC signing, compliance reports, time-based RBAC) use existing tables
 - All trace data flows through existing `audit_logs` table
 
 ---

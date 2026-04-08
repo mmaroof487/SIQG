@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Database, BarChart3, Heart } from "lucide-react";
+import { Database, BarChart3, Heart, Settings } from "lucide-react";
 
 export default function Navigation() {
 	const location = useLocation();
@@ -30,6 +30,10 @@ export default function Navigation() {
 						<Link to="/health" className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${isActive("/health")}`}>
 							<Heart className="w-4 h-4" />
 							Health
+						</Link>
+						<Link to="/admin" className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${isActive("/admin")}`}>
+							<Settings className="w-4 h-4" />
+							Admin
 						</Link>
 					</div>
 				</div>

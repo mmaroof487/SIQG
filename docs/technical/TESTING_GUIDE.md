@@ -1,20 +1,20 @@
-# Argus Testing Guide (Phases 1-6)
+# Argus Testing Guide (All 32 Steps Across 6 Tiers)
 
 ## Quick Start
 
-The fastest way to verify the entire system (Security, Performance, Intelligence, Observability, Security Hardening, and AI + Polish layers) is to use the integrated test orchestration script:
+The fastest way to verify all 32 implemented features across 6 tiers is to use the comprehensive test script:
 
 ```bash
-bash test_all_phases.sh
+bash test_all_32_features.sh
 ```
 
-This script will automatically rebuild the gateway, provision the primary and replica databases, flush the Redis persistent cache, and run every feature test sequentially including all Phase 1-6 tests.
+This script will automatically rebuild the gateway, provision the primary and replica databases, flush the Redis persistent cache, and run all features sequentially including all Tier 1-6 steps (32 total).
 
 **Current Status:**
 
 - ✅ 134 tests passing
 - ✅ 3 tests skipped (expected - SDK file checks in Docker)
-- ✅ All 6 phases verified
+- ✅ All 32 steps across 6 tiers verified
 - ✅ 71%+ code coverage
 
 ---

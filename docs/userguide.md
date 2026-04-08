@@ -146,19 +146,43 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 
 ```json
 {
-	"detail": "Access to sensitive field 'hashed_password' is blocked. Use explicit column selection instead."
+	"detail": {
+		"blocked": true,
+		"block_reasons": ["Query references sensitive field: hashed_password"],
+		"suggested_fix": "Remove 'hashed_password' from query"
+	}
 }
 ```
 
 HTTP Status: **403 Forbidden** 🔒
 
-**Explanation:**
-The system has a second layer of protection at the query execution level:
+**Understanding the 3-Layer Protection:**
 
-- **Blocked fields**: `hashed_password`, `password`, `secret`, `token`, `api_key`
-- **Protection method**: Defensive check before executing ANY query
-- **Defense-in-depth**: Works alongside RBAC masking (Layer roles have denied columns)
-- **User experience**: Clear error message tells you what went wrong
+The system protects sensitive fields (passwords, tokens, API keys) at THREE different levels:
+
+**Layer 1: Query-Level Blocking (Your Primary Guard)**
+- Blocks explicit references to sensitive fields: `hashed_password`, `password`, `token`, `api_key`, `secret`, `internal_notes`
+- Examples of blocked queries:
+  - ❌ `SELECT id, hashed_password FROM users` → 403 Forbidden
+  - ❌ `SELECT * FROM users WHERE password = 'abc'` → 403 Forbidden (uses password in WHERE)
+- **This is the main line of defense** — prevents direct sensitive field access
+
+**Layer 2: RBAC Masking (Safety Net)**
+- Even if you use `SELECT *` (wildcard), your role restricts which columns you can see
+- Admin role: Sees everything
+- Readonly role: Sensitive columns removed from results
+- Guest role: Even more columns hidden
+
+**Layer 3: Blind DLP Regex (Last Mile)**
+- Even if something slipped through, all string values are scanned for patterns
+- Emails masked: `alice@company.com` → `a****@company.com`
+- SSNs masked: `123-45-6789` → `****-**-6789`
+
+**Safe queries you can run:**
+
+✅ `SELECT id, username, email FROM users` — No sensitive fields
+✅ `SELECT * FROM users` — Allowed (sensitive columns stripped by RBAC)
+✅ `SELECT id, username FROM users WHERE is_active = true` — Specific columns, safe
 
 **Try a safe query instead:**
 
@@ -186,7 +210,7 @@ curl -X POST http://localhost:8000/api/v1/query/execute \
 }
 ```
 
-✅ **Query succeeded!** Your data is safe.
+✅ **Query succeeded!** Your data is safe. Three-layer protection ensures sensitive fields cannot leak out.
 
 ---
 
@@ -459,7 +483,10 @@ curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
 	"original_question": "Show me all users",
 	"generated_sql": "SELECT * FROM users LIMIT 1000",
 	"result": {
-		"rows": [...],
+		"rows": [
+			{ "id": 1, "username": "alice", "email": "alice@company.com", "is_active": true },
+			{ "id": 2, "username": "bob", "email": "bob@company.com", "is_active": true }
+		],
 		"rows_count": 22,
 		"latency_ms": 15.2,
 		"cached": false
@@ -467,6 +494,14 @@ curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
 	"status": "success"
 }
 ```
+
+**What happens behind the scenes:**
+1. Groq LLM generates: `SELECT * FROM users`
+2. Argus checks for LIMIT clause (missing!) 
+3. Argus auto-injects LIMIT 1000: `SELECT * FROM users LIMIT 1000`
+4. Executes against replica database
+5. Applies RBAC masking: removes `hashed_password`, `internal_notes` for non-admin users
+6. Returns safe results
 
 ---
 
@@ -522,6 +557,7 @@ FROM users
 WHERE is_active = true
 GROUP BY role
 ORDER BY user_count DESC
+LIMIT 1000
 ```
 
 ---
@@ -546,7 +582,19 @@ LIMIT 5
 ```
 
 **Why LIMIT 5 (not 1000)?**
-The system detects "top 5" pattern and enforces the correct LIMIT before calling AI. This ensures semantic accuracy even if the LLM might otherwise return a default LIMIT.
+
+Argus detects "top 5" pattern BEFORE calling Groq and pre-enforces the correct LIMIT. This ensures:
+- ✅ Semantic accuracy (questions asking for "top N" get exactly N results)
+- ✅ Zero LLM ambiguity (prevents "top 5" being interpreted as 1000)
+- ✅ Instant answer (pattern matching returns result <10ms, no LLM call)
+
+**Pattern Matching Guardrails (Pre-LLM):**
+- "top 5" → `LIMIT 5`
+- "how many" → `COUNT(*)`
+- "average salary" → `AVG(salary)`
+- "unique countries" → `SELECT DISTINCT country`
+
+These are matched instantly without calling Groq, improving speed and reliability.
 
 ---
 
@@ -1401,3 +1449,18 @@ See the generated SQL and learn the SQL syntax!
 - 5-10× speed improvement for common queries
 
 ---
+
+## 🚀 Advanced Features (Tier 6: Steps 25-32)
+
+Argus includes **8 advanced enterprise features** for production deployments:
+
+- **Step 25:** Time-based access control (hourly/weekday restrictions with timezone support)
+- **Step 26:** Query diff viewer (side-by-side comparison of SQL queries)
+- **Step 27:** Dry-run UI panel (pipeline checklist + cost estimate before execution)
+- **Step 28:** Index DDL copy (one-click suggestions for missing indexes)
+- **Step 29:** Admin dashboard (7 tabs: audit log, slow queries, budget, IP rules, users, whitelist, compliance)
+- **Step 30:** HMAC request signing (timing-attack safe authentication headers)
+- **Step 31:** Compliance report export (JSON/CSV format with audit summary, metrics, security stats)
+- **Step 32:** AI anomaly explanation (severity auto-detection, LLM-based explanations for anomalies)
+
+**→ See [TIER6_FEATURES_GUIDE.md](TIER6_FEATURES_GUIDE.md) for complete documentation and examples.**

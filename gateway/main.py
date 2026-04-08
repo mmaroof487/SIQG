@@ -6,7 +6,7 @@ import redis.asyncio as aioredis
 from config import settings
 from utils.db import init_db, close_db
 # IMPORTANT: Import models BEFORE init_db() so SQLAlchemy registers them with Base
-from models import User, APIKey, IPRule, Role, AuditLog, SlowQuery, SLASnapshot
+from models import User, APIKey, IPRule, Role, AuditLog, SlowQuery, SLASnapshot, QueryWhitelist
 from routers.v1 import auth, query, admin, metrics, ai
 from middleware.security.auth import get_current_user
 from middleware.security.rate_limiter import check_rate_limit

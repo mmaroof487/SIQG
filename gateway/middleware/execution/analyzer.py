@@ -159,3 +159,70 @@ def recommend_indexes(query: str, plan: dict) -> list:
         "seq_scans": _extract_all_nodes(root_plan) if root_plan else [],
     }
     return generate_index_suggestions(mapped, query)
+
+
+def build_query_recommendation(
+    query: str,
+    complexity_score: float,
+    execution_time_ms: float,
+    plan_analysis: dict,
+    slow_threshold_ms: int = 200,
+) -> str:
+    """
+    Merge complexity score, index suggestions, and execution analysis into one
+    actionable recommendation string for slow queries.
+
+    Args:
+        query: SQL query string
+        complexity_score: Numerical complexity (0-100+)
+        execution_time_ms: Actual execution time in milliseconds
+        plan_analysis: Dict with execution plan, sqans, costs (from analyze_query_plan)
+        slow_threshold_ms: Threshold for slow query classification
+
+    Returns:
+        Single human-readable recommendation string with actionable fixes
+    """
+    recommendations = []
+
+    # Complexity-based recommendation
+    if complexity_score >= 80:
+        recommendations.append(f"⚠️ High query complexity ({complexity_score:.0f}/100). Simplify with JOINs or subqueries.")
+    elif complexity_score >= 50:
+        recommendations.append(f"⚠️ Moderate query complexity ({complexity_score:.0f}/100). Consider optimization.")
+
+    # Execution time recommendation
+    if execution_time_ms > slow_threshold_ms:
+        recommendations.append(
+            f"⏱️ Query took {execution_time_ms}ms (threshold: {slow_threshold_ms}ms). "
+            f"Slow queries may benefit from indexing."
+        )
+
+    # Index suggestions from plan analysis
+    index_suggestions = recommend_indexes(query, plan_analysis)
+    if index_suggestions:
+        # Take the first (most impactful) suggestion
+        top_suggestion = index_suggestions[0]
+        recommendations.append(
+            f"📊 {top_suggestion['reason']}. "
+            f"Suggested index: {top_suggestion['ddl']}"
+        )
+
+    # Seq scan warning
+    if plan_analysis.get("node_type") == "Seq Scan":
+        recommendations.append(
+            "🔍 Full table scan detected. Add indexes on filtered/joined columns."
+        )
+
+    # Cost-based warning
+    total_cost = plan_analysis.get("total_cost", 0)
+    if total_cost > 1000:
+        recommendations.append(
+            f"💰 Query cost: {total_cost:.0f} (high). "
+            f"Consider schema optimization or query restructuring."
+        )
+
+    # Join the recommendations
+    if not recommendations:
+        return "✅ Query is well-optimized. No immediate recommendations."
+
+    return " | ".join(recommendations)

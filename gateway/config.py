@@ -7,6 +7,17 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# === CENTRALIZED SENSITIVE FIELDS ===
+# Single source of truth for field names that should never leak in output
+SENSITIVE_FIELDS = {
+    "hashed_password",
+    "password",
+    "token",
+    "api_key",
+    "secret",
+    "internal_notes",
+}
+
 
 class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", case_sensitive=False)
@@ -30,6 +41,11 @@ class Settings(BaseSettings):
 
     # === RATE LIMITING ===
     rate_limit_per_minute: int = 60
+
+    # === PER-ROLE RATE LIMITS ===
+    rate_limit_admin_per_minute: int = 500
+    rate_limit_readonly_per_minute: int = 60
+    rate_limit_guest_per_minute: int = 10
 
     # === BRUTE FORCE ===
     brute_force_max_attempts: int = 5
@@ -61,6 +77,11 @@ class Settings(BaseSettings):
         }
     }"""
 
+    # === TIME-BASED RBAC ===
+    # Note: Disabled for testing (outside of business hours)
+    # To enable: set to valid JSON with allowed_hours and timezone
+    time_based_rbac_json: str = "{}"  # Empty = disabled for all roles
+
     # === QUERY LIMITS ===
     query_timeout_seconds: int = 5
     admin_query_timeout_seconds: int = 10
@@ -69,6 +90,9 @@ class Settings(BaseSettings):
     cost_threshold_block: int = 10000
     slow_query_threshold_ms: int = 200
     daily_budget_default: int = 50000
+
+    # === QUERY WHITELIST ===
+    whitelist_mode_enabled: bool = False  # If true, only approved query fingerprints execute
 
     # === CIRCUIT BREAKER ===
     circuit_failure_threshold: int = 5
@@ -93,8 +117,25 @@ class Settings(BaseSettings):
 
     @property
     def sensitive_fields(self) -> set[str]:
-        """Single source of truth for sensitive field names."""
-        return {f.strip().lower() for f in self.sensitive_fields_csv.split(",") if f.strip()}
+        """Single source of truth for sensitive field names.
+
+        Returns the centralized SENSITIVE_FIELDS constant combined with
+        any additional fields defined in environment config.
+        """
+        # Start with centralized constant
+        fields = SENSITIVE_FIELDS.copy()
+        # Add any additional fields from CSV config
+        env_fields = {f.strip().lower() for f in self.sensitive_fields_csv.split(",") if f.strip()}
+        return fields | env_fields
+
+    @property
+    def get_rate_limit_for_role(self) -> dict[str, int]:
+        """Return rate limit mapping for each role."""
+        return {
+            "admin": self.rate_limit_admin_per_minute,
+            "readonly": self.rate_limit_readonly_per_minute,
+            "guest": self.rate_limit_guest_per_minute,
+        }
 
     @property
     def encrypt_columns_list(self) -> List[str]:
@@ -119,6 +160,16 @@ class Settings(BaseSettings):
                 "readonly": {"tables": "*", "columns": "*", "operations": ["SELECT"]},
                 "guest": {"tables": ["public_data"], "columns": ["id", "name", "created_at"], "operations": ["SELECT"]}
             }
+
+    @property
+    def time_based_rbac(self) -> dict:
+        """Parse time-based RBAC rules from JSON configuration."""
+        import json
+        try:
+            return json.loads(self.time_based_rbac_json)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse time-based RBAC JSON")
+            return {}
 
 
 settings = Settings()

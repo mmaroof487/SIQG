@@ -43,6 +43,7 @@ async def write_cache(
 ):
     """
     Write query result to cache with table-tagged invalidation.
+    Periodically cleans stale tag references to prevent unbounded tag set growth.
     """
     if ttl is None:
         from config import settings
@@ -72,9 +73,60 @@ async def write_cache(
             # Set TTL on tag key as well
             await redis.expire(tag_key, ttl * 2)  # 2x TTL for cleanup
 
+            # Periodically clean stale tags: if tag set size > 1000, run cleanup
+            # Note: SIZE is O(1) in Redis, so safe to call frequently
+            try:
+                tag_size = await redis.scard(tag_key)
+                if tag_size > 1000:
+                    # Run cleanup asynchronously without blocking
+                    import asyncio
+                    asyncio.create_task(cleanup_stale_tags(request, table))
+            except Exception:
+                pass  # If size check fails, continue anyway
+
         logger.info(f"Cache SET: {cache_key}")
     except Exception as e:
         logger.warning(f"Cache set error: {e}")
+
+
+async def cleanup_stale_tags(
+    request: Request,
+    table: str,
+):
+    """
+    Remove stale/expired cache key references from a table's tag set.
+    Called when tag set grows to prevent unbounded memory usage.
+    Uses SSCAN to avoid loading all members into memory at once.
+    """
+    redis = request.app.state.redis
+    tag_key = f"argus:cache_tags:{table}"
+
+    try:
+        cursor = 0
+        stale_count = 0
+
+        while True:
+            # SSCAN the tag key set with COUNT hint
+            cursor, cache_keys = await redis.sscan(tag_key, cursor, count=100)
+
+            if cache_keys:
+                # Check which cache keys still exist
+                for cache_key in cache_keys:
+                    exists = await redis.exists(cache_key)
+                    if not exists:
+                        # Key expired; remove from tag set
+                        await redis.srem(tag_key, cache_key)
+                        stale_count += 1
+
+            # Continue if cursor is not 0
+            if cursor == 0:
+                break
+
+        if stale_count > 0:
+            logger.info(f"Cleaned {stale_count} stale tags from '{table}'")
+
+    except Exception as e:
+        logger.warning(f"Tag cleanup error for '{table}': {e}")
 
 
 async def invalidate_table_cache(

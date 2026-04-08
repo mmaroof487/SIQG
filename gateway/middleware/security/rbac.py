@@ -165,3 +165,76 @@ def strip_denied_columns(role: str, columns: list[str]) -> list[str]:
         return columns
 
     return [col for col in columns if not is_column_denied(col, role)]
+
+
+async def check_time_based_access(request: Request):
+    """
+    Check if the user's role has time-based access restrictions.
+    Raises HTTPException if access is not allowed at the current time.
+    """
+    from datetime import datetime
+    import pytz
+
+    role = getattr(request.state, "role", "guest")
+    time_rules = settings.time_based_rbac
+
+    # If no rules for this role, allow access
+    if role not in time_rules:
+        return
+
+    rule = time_rules[role]
+    allowed_hours = rule.get("allowed_hours")
+    allowed_weekdays = rule.get("allowed_weekdays", [])
+    timezone_str = rule.get("timezone", "UTC")
+
+    # Parse timezone
+    try:
+        tz = pytz.timezone(timezone_str)
+    except Exception:
+        logger.warning(f"Invalid timezone: {timezone_str}, using UTC")
+        tz = pytz.UTC
+
+    # Get current time in the specified timezone
+    now = datetime.now(tz)
+    current_time = now.time()
+    weekday_name = now.strftime("%A")
+
+    # Check weekday restriction
+    if allowed_weekdays and weekday_name not in allowed_weekdays:
+        logger.warning(f"Access blocked for {role}: not an allowed weekday ({weekday_name})")
+        blocked_until = "Monday 09:00"  # Generic message
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "blocked": True,
+                "block_reasons": [f"Access for {role} role is restricted. Allowed weekdays: {', '.join(allowed_weekdays)}"],
+                "blocked_until": blocked_until,
+                "current_time": now.isoformat(),
+            }
+        )
+
+    # Check hour restriction (e.g. "09:00-17:00")
+    if allowed_hours:
+        try:
+            start_str, end_str = allowed_hours.split("-")
+            start_parts = start_str.strip().split(":")
+            end_parts = end_str.strip().split(":")
+
+            start_time = datetime.strptime(f"{start_parts[0]}:{start_parts[1]}", "%H:%M").time()
+            end_time = datetime.strptime(f"{end_parts[0]}:{end_parts[1]}", "%H:%M").time()
+
+            # Check if current time is within allowed hours
+            if not (start_time <= current_time <end_time):
+                logger.warning(f"Access blocked for {role}: outside allowed hours")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "blocked": True,
+                        "block_reasons": [f"Access for {role} role is restricted to {allowed_hours} {timezone_str}"],
+                        "allowed_hours": allowed_hours,
+                        "current_time": now.isoformat(),
+                    }
+                )
+        except ValueError as e:
+            logger.warning(f"Invalid hour format in time-based RBAC: {e}")
+            # If parsing fails, allow access (be permissive)

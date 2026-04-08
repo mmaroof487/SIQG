@@ -7,13 +7,22 @@ import time
 logger = get_logger(__name__)
 
 
-async def check_rate_limit(request: Request, user_id: str):
+async def check_rate_limit(request: Request, user_id: str, role: str = "readonly"):
     """
-    Check rate limit using sliding window counter.
+    Check rate limit using sliding window counter with per-role limits.
     Also detect anomalies (request rate 3x baseline).
+
+    Args:
+        request: FastAPI Request object
+        user_id: User identifier
+        role: User role (admin, readonly, guest) to determine rate limit
     """
     redis = request.app.state.redis
     window_seconds = 60
+
+    # Get per-role rate limit
+    role_limits = settings.get_rate_limit_for_role
+    limit = role_limits.get(role, settings.rate_limit_per_minute)
 
     # Rate limit key
     limit_key = f"argus:ratelimit:{user_id}"
@@ -29,12 +38,11 @@ async def check_rate_limit(request: Request, user_id: str):
         await redis.expire(bucket_key, window_seconds * 2)
 
     # Check if over limit
-    limit = settings.rate_limit_per_minute
     if count > limit:
-        logger.warning(f"Rate limit exceeded: {user_id} ({count} > {limit} per minute)")
+        logger.warning(f"Rate limit exceeded: {user_id} ({count} > {limit} per minute, role={role})")
         raise HTTPException(
             status_code=429,
-            detail=f"Too many requests. Limit: {limit} per minute"
+            detail=f"Too many requests. Limit: {limit} per minute for {role} role"
         )
 
     # Check for anomaly (3x baseline)

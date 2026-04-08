@@ -47,6 +47,24 @@ class ExplainResponse(BaseModel):
     explanation: str
 
 
+class AnomalyExplanationRequest(BaseModel):
+    """Request for anomaly explanation."""
+    anomaly_type: str  # e.g., "rate_limit_spike", "unusual_pattern", "performance_degradation"
+    user_id: Optional[str] = None
+    baseline_value: Optional[float] = None  # Normal/expected value
+    detected_value: Optional[float] = None  # Actual observed value
+    additional_context: Optional[str] = None  # Any extra details (e.g., affected query, table)
+    timestamp: Optional[str] = None  # When anomaly was detected
+
+
+class AnomalyExplanationResponse(BaseModel):
+    """Response from anomaly explanation endpoint."""
+    anomaly_type: str
+    explanation: str
+    recommended_action: Optional[str] = None
+    severity: str = "medium"  # "low", "medium", "high", "critical"
+
+
 # ============================================================================
 # LLM Prompts
 # ============================================================================
@@ -82,6 +100,24 @@ RULES:
   - How many rows are returned (e.g., "returns up to 10 rows")
 - Do not include technical jargon without explanation."""
 
+SYSTEM_PROMPT_ANOMALY = """You are a database performance and security expert.
+Analyze the given anomaly and provide a brief, actionable explanation.
+
+RULES:
+- Be concise (2-3 sentences maximum).
+- Use simple language — assume reader is non-technical database user.
+- Explain WHAT happened:
+  - What the anomaly is (e.g., "An unusual spike in query requests")
+  - How it differs from normal (e.g., "10x higher than usual")
+- Explain POSSIBLE CAUSES:
+  - Start with most likely cause (e.g., "Possibly a broken loop or aggressive client")
+  - Mention other possibilities if relevant
+- Suggest RECOMMENDED ACTION:
+  - Be specific and actionable (e.g., "Review recent code changes" or "Check for compromised API keys")
+  - Prioritize security concerns (e.g., brute force attempts)
+  - Include severity assessment (low/medium/high/critical)
+- Keep technical depth appropriate to non-expert users."""
+
 
 # ============================================================================
 # AI Helper Functions
@@ -93,6 +129,21 @@ async def call_llm_mock(system: str, user_message: str) -> str:
 
     # Determine if this is an explanation request or SQL generation
     is_explain = "explain" in system.lower()
+    is_anomaly = "anomaly" in system.lower()
+
+    if is_anomaly:
+        # Generate anomaly explanation based on anomaly context
+        user_msg_lower = user_message.lower()
+
+        if "rate_limit" in user_msg_lower and "spike" in user_msg_lower:
+            return "An unusual spike in query requests (10x higher than baseline) detected. This could indicate a broken loop in client code, runaway automation, or a potential brute force attack. Recommended: Review recent code deployments and check API key access patterns immediately."
+        elif "performance" in user_msg_lower and "degrad" in user_msg_lower:
+            return "Database performance degradation detected. Query response times are 5x slower than normal. This may be caused by missing indexes, table locks, or excessive concurrent queries. Recommended: Check EXPLAIN ANALYZE output for slow queries and verify index health."
+        elif "unusual" in user_msg_lower and "pattern" in user_msg_lower:
+            return "An unusual query pattern detected. Out-of-ordinary table access or query types. This could indicate unauthorized data access or a compromised API key. Recommended: Review audit logs and restrict the suspected API key immediately if suspicious."
+        else:
+            # Generic anomaly explanation
+            return "An anomaly was detected in the system. Activity levels differ significantly from baseline. Recommended: Check recent system changes, review audit logs, and monitor performance metrics closely."
 
     if is_explain:
         # Generate SPECIFIC explanation by parsing actual SQL query structure
@@ -313,12 +364,16 @@ async def call_openai(system: str, user_message: str) -> str:
             )
             response.raise_for_status()
             data = response.json()
+            logger.debug(f"OpenAI response data: {data}")
+            if "choices" not in data or not data["choices"]:
+                logger.error(f"OpenAI API error: Missing 'choices' in response: {data}")
+                return f"ERROR: OpenAI API returned unexpected format: {data.get('error', {}).get('message', str(data))}"
             content = data["choices"][0]["message"]["content"].strip()
             logger.debug(f"OpenAI response: {content[:100]}...")
             return content
     except Exception as e:
-        logger.error(f"OpenAI call failed: {e}")
-        return f"ERROR: {str(e)}"
+        logger.error(f"OpenAI call failed: {e}", exc_info=True)
+        return f"ERROR: OpenAI API error: {str(e)}"
 
 
 async def call_groq(system: str, user_message: str) -> str:
@@ -368,12 +423,16 @@ async def call_groq(system: str, user_message: str) -> str:
 
                 response.raise_for_status()
                 data = response.json()
+                logger.debug(f"Groq response data: {data}")
+                if "choices" not in data or not data["choices"]:
+                    logger.error(f"Groq API error: Missing 'choices' in response: {data}")
+                    return f"ERROR: Groq API returned unexpected format: {data.get('error', {}).get('message', str(data))}"
                 content = data["choices"][0]["message"]["content"].strip()
                 logger.debug(f"Groq response: {content[:100]}...")
                 return content
 
         except Exception as e:
-            logger.error(f"Groq call failed (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.error(f"Groq call failed (attempt {attempt + 1}/{max_retries}): {e}", exc_info=True)
             if attempt == max_retries - 1:
                 return f"ERROR: {str(e)}"
             await asyncio.sleep(base_delay * (2 ** attempt))
@@ -438,14 +497,18 @@ async def call_gemini(system: str, user_message: str) -> str:
                 response.raise_for_status()
 
                 data = response.json()
+                logger.debug(f"Gemini response data: {data}")
+                if "candidates" not in data or not data["candidates"]:
+                    logger.error(f"Gemini API error: Missing 'candidates' in response: {data}")
+                    return f"ERROR: Gemini API returned unexpected format: {data.get('error', {}).get('message', str(data))}"
                 content = data["candidates"][0]["content"]["parts"][0]["text"].strip()
                 logger.debug(f"Gemini response: {content[:100]}...")
                 return content
 
         except Exception as e:
-            logger.error(f"Gemini call failed (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.error(f"Gemini call failed (attempt {attempt + 1}/{max_retries}): {e}", exc_info=True)
             if attempt == max_retries - 1:
-                return f"ERROR: {str(e)}"
+                return f"ERROR: Gemini API error: {str(e)}"
             # Wait before retrying on other errors
             await asyncio.sleep(base_delay * (2 ** attempt))
 
@@ -522,6 +585,11 @@ async def nl_to_sql(
                 status="error",
                 message=generated_sql,
             )
+
+        # Inject LIMIT clause if SELECT query lacks one
+        if generated_sql.upper().find("LIMIT") == -1 and generated_sql.upper().startswith("SELECT"):
+            generated_sql = generated_sql.rstrip(";") + " LIMIT 1000"
+            logger.debug(f"[{trace_id}] Injected LIMIT 1000 into query: {generated_sql}")
 
         # Run the generated SQL through the full gateway pipeline
         # Create a QueryRequest and execute it
@@ -604,3 +672,123 @@ async def explain_query(
     except Exception as e:
         logger.error(f"Explain error: {e}")
         raise HTTPException(status_code=500, detail=f"Explanation failed: {str(e)}")
+
+
+@router.post("/explain-anomaly", response_model=AnomalyExplanationResponse)
+async def explain_anomaly(
+    body: AnomalyExplanationRequest,
+    user=Depends(get_current_user),
+) -> AnomalyExplanationResponse:
+    """
+    Explain an anomaly detected in the system using AI analysis.
+
+    Step 32: AI Anomaly Explanation - Generate human-readable explanations for detected anomalies.
+
+    Example:
+        POST /api/v1/ai/explain-anomaly
+        {
+            "anomaly_type": "rate_limit_spike",
+            "user_id": "user_456",
+            "baseline_value": 60,
+            "detected_value": 600,
+            "additional_context": "Requests concentrated on SELECT queries against users table",
+            "timestamp": "2025-01-15T14:32:00Z"
+        }
+
+    Returns:
+        - anomaly_type: Type of anomaly detected
+        - explanation: Plain English explanation of what happened
+        - recommended_action: Suggested next steps
+        - severity: Risk level (low/medium/high/critical)
+    """
+    trace_id = getattr(request, "state.trace_id", "unknown") if hasattr(__import__('threading'), 'current_thread') else "unknown"
+
+    try:
+        logger.info(f"[{trace_id}] Anomaly explanation: {body.anomaly_type}")
+
+        # Build context for LLM
+        context = f"""Anomaly Type: {body.anomaly_type}
+User ID: {body.user_id or "unknown"}
+Baseline: {body.baseline_value or "unknown"}
+Detected: {body.detected_value or "unknown"}
+"""
+        if body.additional_context:
+            context += f"Context: {body.additional_context}\n"
+        if body.timestamp:
+            context += f"Timestamp: {body.timestamp}\n"
+
+        # Call LLM for explanation
+        explanation = await call_llm(SYSTEM_PROMPT_ANOMALY, context)
+
+        logger.debug(f"[{trace_id}] Anomaly explanation generated: {explanation[:100]}...")
+
+        # Determine severity based on anomaly type and values
+        severity = _determine_anomaly_severity(body)
+
+        # Extract recommended action from LLM response if available
+        # If LLM included action in explanation, parse it; otherwise use generic
+        recommended_action = None
+        if "Recommended:" in explanation:
+            # LLM included action in explanation
+            parts = explanation.split("Recommended:")
+            if len(parts) > 1:
+                recommended_action = "Recommended: " + parts[1].strip()
+                # Keep explanation without the action part
+                explanation = parts[0].strip()
+
+        return AnomalyExplanationResponse(
+            anomaly_type=body.anomaly_type,
+            explanation=explanation,
+            recommended_action=recommended_action,
+            severity=severity,
+        )
+
+    except HTTPException as e:
+        logger.warning(f"[{trace_id}] Anomaly explanation HTTP error: {e.detail}")
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[{trace_id}] Anomaly explanation error: {error_msg}")
+        raise HTTPException(status_code=500, detail=f"Anomaly explanation failed: {error_msg[:200]}")
+
+
+def _determine_anomaly_severity(body: AnomalyExplanationRequest) -> str:
+    """Determine anomaly severity based on type and magnitude."""
+    anomaly_type = body.anomaly_type.lower()
+
+    # Default to medium
+    severity = "medium"
+
+    # Rate limit spike: higher magnitude = higher severity
+    if "rate_limit" in anomaly_type or "spike" in anomaly_type:
+        if body.detected_value and body.baseline_value:
+            ratio = body.detected_value / max(body.baseline_value, 1)
+            if ratio >= 20:  # >= 20x is critical
+                severity = "critical"
+            elif ratio >= 10:  # >= 10x is high
+                severity = "high"
+            elif ratio >= 5:  # >= 5x is medium
+                severity = "medium"
+            else:
+                severity = "low"
+
+    # Performance degradation: higher latency = higher severity
+    elif "performance" in anomaly_type or "degrad" in anomaly_type:
+        if body.detected_value and body.baseline_value:
+            ratio = body.detected_value / max(body.baseline_value, 1)
+            if ratio >= 10:  # >= 10x latency is critical
+                severity = "critical"
+            elif ratio >= 5:  # >= 5x is high
+                severity = "high"
+            elif ratio >= 2:  # >= 2x is medium
+                severity = "medium"
+
+    # Security anomalies are always at least high severity
+    elif any(keyword in anomaly_type for keyword in ["security", "brute", "auth", "unauthorized", "suspicious"]):
+        severity = "high"
+
+    # Unusual patterns are usually medium or high
+    elif "unusual" in anomaly_type or "pattern" in anomaly_type:
+        severity = "high" if body.additional_context and "suspicious" in body.additional_context.lower() else "medium"
+
+    return severity

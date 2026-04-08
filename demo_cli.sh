@@ -58,7 +58,7 @@ QUERY_RESULT=$(curl -s -X POST "$GATEWAY_URL/api/v1/query/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "sql": "SELECT id, username FROM users LIMIT 5"
+    "query": "SELECT id, username FROM users LIMIT 5"
   }')
 
 LATENCY=$(echo "$QUERY_RESULT" | jq '.latency_ms' 2>/dev/null)
@@ -104,11 +104,11 @@ DRY_RUN=$(curl -s -X POST "$GATEWAY_URL/api/v1/query/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "sql": "SELECT id, username FROM users WHERE id > 1000 LIMIT 100",
+    "query": "SELECT id, username FROM users WHERE id > 1000 LIMIT 100",
     "dry_run": true
   }')
 
-COST=$(echo "$DRY_RUN" | jq '.estimated_cost' 2>/dev/null)
+COST=$(echo "$DRY_RUN" | jq '.analysis.total_cost // .cost' 2>/dev/null)
 echo "✓ Estimated cost: $COST units (query was NOT executed)"
 echo ""
 sleep 1
@@ -126,8 +126,8 @@ echo "📈 Step 8: Viewing live performance metrics..."
 METRICS=$(curl -s -X GET "$GATEWAY_URL/api/v1/metrics/live" \
   -H "Authorization: Bearer $TOKEN")
 
-CACHE_HIT=$(echo "$METRICS" | jq '.cache_hit_rate' 2>/dev/null)
-LATENCY_P95=$(echo "$METRICS" | jq '.latency_p95_ms' 2>/dev/null)
+CACHE_HIT=$(echo "$METRICS" | jq '.cache_hit_ratio' 2>/dev/null)
+LATENCY_P95=$(echo "$METRICS" | jq '.latency_p95' 2>/dev/null)
 echo "✓ Cache hit rate: ${CACHE_HIT}%"
 echo "✓ P95 latency: ${LATENCY_P95}ms"
 echo ""

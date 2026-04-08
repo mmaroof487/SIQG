@@ -148,6 +148,8 @@ The database proxy and security gateway market splits into three categories: ope
 | Read/write routing            | ✓     | —         | ✓         | —            | ✓        | —            |
 | SQL injection detection       | ✓     | —         | —         | ✓            | ✓        | ✓            |
 | Role-based access control     | ✓     | —         | —         | ✓            | ✓        | ✓            |
+| 3-layer sensitive field protection* | ✓ | — | — | basic | basic | —            |
+| Blind regex DLP masking       | ✓     | —         | —         | —            | —        | —            |
 | PII data masking              | ✓     | —         | —         | ✓            | ✓        | ✓            |
 | Column-level encryption (AES) | ✓     | —         | —         | transit only | —        | —            |
 | Immutable audit log           | ✓     | —         | —         | ✓            | ✓        | ✓            |
@@ -156,10 +158,13 @@ The database proxy and security gateway market splits into three categories: ope
 | Index recommendations         | ✓     | —         | —         | —            | —        | —            |
 | Slow query detection          | ✓     | —         | —         | —            | basic    | —            |
 | Honeypot table detection      | ✓     | —         | —         | —            | ✓        | —            |
-| NL → SQL (AI)                 | ✓     | —         | —         | —            | —        | anomaly only |
+| Auto-LIMIT injection          | ✓     | —         | —         | —            | —        | —            |
+| NL → SQL (AI + Fallback)      | ✓     | —         | —         | —            | —        | anomaly only |
 | Rate limiting                 | ✓     | —         | —         | —            | —        | ✓            |
 | Open source                   | ✓     | ✓         | ✓         | —            | —        | —            |
 | Self-hostable                 | ✓     | ✓         | ✓         | on-prem      | on-prem  | ✓            |
+
+*3-layer: Query-level blocking + RBAC masking + Blind DLP pattern matching
 
 ### Argus's Edge
 
@@ -346,6 +351,67 @@ docker compose exec gateway pytest tests/ -v --cov=. --cov-report=term-missing
 | Docker services           | 5 (gateway, postgres, replica, redis, frontend) |
 | SDK version               | 0.1.0 (pip install-able)                        |
 | CLI commands              | 6 (fully functional)                            |
+
+---
+
+## Market Positioning & Competitive Advantage
+
+### The Argument
+
+Other solutions address fragments of this problem:
+
+| Feature / Capability           |                        Argus                         |    Supabase     |     Hasura     | Escape Tech |  pgAdmin   | Custom Proxy |
+| ------------------------------ | :--------------------------------------------------: | :-------------: | :------------: | :---------: | :--------: | :----------: |
+| **Network layer protection**   |              ✅ IP filtering, honeypot               | ✅ Network auth |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Rate limiting**              |             ✅ Per-user + per-role tiers             |    ✅ Basic     |   ✅ Custom    |     ✅      |     ❌     |  Patchwork   |
+| **RBAC + Column Masking**      | ✅ AES-256 encrypted columns, role-based PII masking |  ✅ Row-level   | ✅ Field-level |     ✅      |     ❌     |  Patchwork   |
+| **Query cost estimation**      |             ✅ EXPLAIN ANALYZE pre-exec              |       ❌        |       ❌       | ✅ Partial  |     ❌     |      ❌      |
+| **Intelligent caching**        |        ✅ SHA-256 fingerprint, 8-10× speedup         |       ✅        |       ✅       |     ❌      |     ❌     |      ❌      |
+| **Circuit breaker pattern**    |         ✅ 3-state with exponential backoff          |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Time-based access control**  |        ✅ Timezone-aware, weekday scheduling         |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **HMAC request signing**       |                ✅ Timing-attack safe                 |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **NL→SQL with fallback**       |          ✅ GROQ + mock (zero failure risk)          |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **AI query explanation**       |            ✅ GROQ + mock, plain English             |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **AI anomaly detection**       |     ✅ Severity auto-detection, LLM explanations     |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Query whitelisting**         |            ✅ Fingerprint-based approval             |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Slow query advisor**         |      ✅ Merged recommendations (emoji prefixes)      |       ❌        |       ❌       |   Partial   |     ✅     |      ❌      |
+| **Comprehensive audit trail**  |         ✅ Insert-only, user/IP/query traced         |       ✅        |       ✅       |     ✅      | ✅ Partial |      ❌      |
+| **Distributed trace IDs**      |              ✅ Full request lifecycle               |       ❌        |       ✅       |   Partial   |     ❌     |      ❌      |
+| **Real-time metrics**          |         ✅ Live endpoint, heatmap, webhooks          |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Business dashboard**         |      ✅ Admin UI with 7 tabs, compliance export      |       ❌        |       ❌       |     ❌      |     ✅     |      ❌      |
+| **API key scoping**            |       ✅ allowed_tables + allowed_query_types        |       ✅        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Daily budget enforcement**   |             ✅ Per-user + daily rollover             |       ❌        |       ❌       |     ✅      |     ❌     |      ❌      |
+| **Multi-provider AI fallback** |         ✅ Groq → mock (guaranteed response)         |       ❌        |       ❌       |     ❌      |     ❌     |      ❌      |
+| **Container-ready**            |            ✅ Docker Compose, 5 services             |       ✅        |       ✅       |     ❌      |     ✅     |    Manual    |
+| **Production test suite**      |          ✅ 134 tests, 71%+ coverage, CI/CD          |       ✅        |       ✅       |     ❌      |  Minimal   |    Custom    |
+| **Python SDK**                 |         ✅ Fully featured, PyPI-publishable          |       ❌        |       ❌       |     ❌      |     ❌     |     None     |
+| **CLI tool**                   |         ✅ 6 commands with token persistence         |       ❌        |       ❌       |     ❌      |     ❌     |     None     |
+
+### Why Argus
+
+**1. Completeness** — Other solutions cover security OR performance OR observability. Argus covers all three, end-to-end, in a single integrated layer.
+
+**2. AI-Ready** — NL→SQL, query explanation, and anomaly explanation are built-in, not aftermarket. GROQ + mock fallback means zero failure risk — users always get SQL, always.
+
+**3. Deployment** — Docker Compose with 5 services (Gateway, PgSQL primary/replica, Redis, React frontend). Ship a completely functional query gateway in one command.
+
+**4. Maintenance** — Purpose-built as a single proxy, not a multi-tenant SaaS platform. Audit logged, fully transparent, no vendor lock-in. You own your data and access logs.
+
+**5. Extensibility** — Add new security layers, cache strategies, or observability hooks without modifying application code. The gateway is the single point of integration.
+
+**6. Cost** — Open source. Self-hosted. No per-request fees. No seat limits. Scale horizontally by deploying multiple gateway instances behind a load balancer.
+
+### Typical Use Cases
+
+1. **Data Science Teams** — Non-engineers query production database safely. NL→SQL handles natural language, RBAC masking prevents PII exposure.
+
+2. **Audit-Heavy Industries** — Insurance, healthcare, finance. Every query logged with user/IP/timestamp, audit trail immutable (insert-only), compliance export in seconds.
+
+3. **Multi-Tenant SaaS** — Row-level isolation via RBAC, per-tenant rate limits, query whitelisting prevents surprise queries.
+
+4. **BI/Analytics** — Slow query advisor surfaces optimization opportunities, cost estimation prevents expensive queries, cache speedup (8-10×) reduces database load.
+
+5. **Regulatory Compliance** — GDPR right-to-be-forgotten via audit log queries, PII masking on the fly, encrypted sensitive columns at rest, HMAC signing for API integrity.
 
 ---
 
