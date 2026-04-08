@@ -5,6 +5,7 @@ I built a system called **Argus**, a middleware layer that sits between applicat
 ## The Problem
 
 Most applications send queries directly to databases with almost no control:
+
 - **SQL Injection:** Attackers craft malicious queries that succeed
 - **Performance Issues:** Expensive queries crash the database without warning
 - **Zero Visibility:** No audit trail of who accessed what data or why
@@ -16,7 +17,8 @@ Most applications send queries directly to databases with almost no control:
 Argus intercepts every query and processes it through 6 production-grade layers:
 
 ### Layer 1: Security
-- SQL injection detection (blocks 13+ injection patterns: OR 1=1, UNION SELECT, --, /*, xp_cmdshell, etc.)
+
+- SQL injection detection (blocks 13+ injection patterns: OR 1=1, UNION SELECT, --, /\*, xp_cmdshell, etc.)
 - Dangerous query blocking (DROP, DELETE, TRUNCATE, ALTER)
 - **Sensitive field protection (3-layer defense-in-depth):**
   - Layer 1: Query-level blocking for explicit sensitive field references (SELECT hashed_password → 403)
@@ -29,6 +31,7 @@ Argus intercepts every query and processes it through 6 production-grade layers:
 - Authentication: JWT (HS256) + API Keys (SHA-256 hashed)
 
 ### Layer 2: Performance
+
 - Query fingerprinting + intelligent caching (6-10x speedup, role-separated)
 - Cost estimation before execution (EXPLAIN without running)
 - Budget enforcement per user (daily limits, admin bypass)
@@ -36,12 +39,14 @@ Argus intercepts every query and processes it through 6 production-grade layers:
 - Read/write routing (SELECTs to replica, writes to primary)
 
 ### Layer 3: Execution
+
 - Circuit breaker (auto-fail if database errors spike)
 - Exponential backoff retry logic (100ms → 200ms → 400ms)
 - Timeout protection (10-second limit per query)
 - Connection pool management from asyncpg
 
 ### Layer 4: Observability
+
 - Audit logging (every query logged with trace IDs)
 - Live metrics (cache hit ratio, latency percentiles, errors)
 - Query heatmap (most accessed tables)
@@ -49,6 +54,7 @@ Argus intercepts every query and processes it through 6 production-grade layers:
 - Webhook notifications for critical events
 
 ### Layer 5: Security Hardening
+
 - AES-256-GCM encryption for sensitive columns
 - Post-execution field masking
 - Blind regex DLP (detects PII/emails regardless of column)
@@ -73,17 +79,20 @@ User: "Top 5 users by spending"
 ```
 
 **Provider Details:**
+
 - **Groq (Llama 3.1 8B):** <1 second response, sophisticated SQL generation, free tier with no practical rate limits
 - **Mock:** Pattern-based regex matcher for 95% of common questions (handles "top N", "how many", "average", etc.), never fails
 - **Behavior:** ANY failure from Groq (timeout, HTTP error, invalid response) triggers automatic fallback
 
 This means:
+
 - ✅ Demos never fail due to LLM
 - ✅ 95% of user questions work instantly via Mock
 - ✅ Complex questions still get Groq quality when available
 - ✅ Zero retry logic needed (automatic seamless fallback)
 
 **Additional Features:**
+
 - LIMIT injection: Post-generation, auto-appends `LIMIT 1000` if missing
 - Semantic guardrails: Pattern matching for "top N" → `LIMIT N`, "count" → `GROUP BY`, etc.
 - Query Explainer: Converts complex SQL to plain English explanations
@@ -104,6 +113,7 @@ Beyond features, I focused on reliability:
 ## Beyond REST APIs
 
 Users interact via:
+
 1. **HTTP APIs:** Standard REST endpoints for queries, metrics, health
 2. **Python SDK:** `from argus import Gateway; g.nl_to_sql("show top 5 users")`
 3. **CLI Tool:** `argus query "SELECT * FROM users LIMIT 10"`
@@ -112,6 +122,7 @@ Users interact via:
 ## Real Performance Results
 
 From end-to-end testing:
+
 ```
 Security Layer:
   ✓ SQL injection blocked
@@ -136,6 +147,7 @@ Security:
 ## Standing Out Against Competitors
 
 Most query proxies focus on performance or security—Argus combines:
+
 - **Resilient AI:** GROQ + MOCK fallback means zero demo failures
 - **Defense-in-Depth:** Sensitive fields blocked at 3 levels (query, RBAC, post-execution)
 - **True Intelligence:** Pattern matching + LLM = accurate semantic SQL

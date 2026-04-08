@@ -45,6 +45,7 @@ Argus is a **security guard + traffic director + smart assistant** for your data
 **What it does:** Makes sure passwords, tokens, and API keys never show up in query results, no matter what.
 
 **Sensitive Fields Protected:**
+
 - `hashed_password`, `password` (obvious ones)
 - `token`, `api_key`, `secret` (authentication tokens)
 - `internal_notes` (private server-side notes)
@@ -81,6 +82,7 @@ Even if something slipped through, Argus scans all string values for patterns (e
 - Scans for credit card patterns → `4532-1234-5678-9010` becomes `****-****-****-9010`
 
 **Result:** Three-layer defense—passwords literally can't leak:
+
 ```
 Layer 1: Query-level blocking (can't ask for them)
 Layer 2: RBAC masking (role doesn't grant access)
@@ -220,6 +222,7 @@ Argus tries: Groq LLM
 ```
 
 **Why the fallback?**
+
 - Demos never fail due to API timeouts
 - 95% of questions matched by mock AI patterns (instant)
 - 5% of complex questions get sophisticated Groq AI when available
@@ -289,14 +292,14 @@ curl -X POST http://localhost:8000/api/v1/query/dry-run \
 
 **What each field means:**
 
-| Field | Meaning |
-|-------|---------|
-| `valid` | Query syntax is correct, tables/columns exist |
-| `safe` | No SQL injection, no destructive commands detected |
-| `estimated_cost` | PostgreSQL planner estimated this query's cost |
-| `estimated_rows` | Planner estimates this will return ~22 rows |
-| `complexity_score` | low/medium/high based on anti-patterns |
-| `warnings` | List of issues (missing indexes, expensive joins, etc.) |
+| Field              | Meaning                                                 |
+| ------------------ | ------------------------------------------------------- |
+| `valid`            | Query syntax is correct, tables/columns exist           |
+| `safe`             | No SQL injection, no destructive commands detected      |
+| `estimated_cost`   | PostgreSQL planner estimated this query's cost          |
+| `estimated_rows`   | Planner estimates this will return ~22 rows             |
+| `complexity_score` | low/medium/high based on anti-patterns                  |
+| `warnings`         | List of issues (missing indexes, expensive joins, etc.) |
 
 **Example with warnings (missing WHERE clause):**
 
@@ -315,14 +318,10 @@ curl -X POST http://localhost:8000/api/v1/query/dry-run \
 	"safe": true,
 	"analysis": {
 		"status": "would_execute",
-		"estimated_cost": 1250.50,
+		"estimated_cost": 1250.5,
 		"estimated_rows": 50000,
 		"complexity_score": "high",
-		"warnings": [
-			"⚠️ Query lacks WHERE clause and will scan 50,000 rows",
-			"⚠️ Query lacks LIMIT and might return too many rows",
-			"💡 Add: WHERE created_at > NOW() - INTERVAL '7 days'"
-		]
+		"warnings": ["⚠️ Query lacks WHERE clause and will scan 50,000 rows", "⚠️ Query lacks LIMIT and might return too many rows", "💡 Add: WHERE created_at > NOW() - INTERVAL '7 days'"]
 	}
 }
 ```

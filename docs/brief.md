@@ -141,30 +141,30 @@ The database proxy and security gateway market splits into three categories: ope
 
 ### Feature Comparison
 
-| Feature                       | Argus | PgBouncer | Pgpool-II | DataSunrise  | Heimdall | Formal       |
-| ----------------------------- | ----- | --------- | --------- | ------------ | -------- | ------------ |
-| Connection pooling            | ✓     | ✓         | ✓         | —            | ✓        | —            |
-| Query caching (Redis)         | ✓     | —         | basic     | —            | ✓        | —            |
-| Read/write routing            | ✓     | —         | ✓         | —            | ✓        | —            |
-| SQL injection detection       | ✓     | —         | —         | ✓            | ✓        | ✓            |
-| Role-based access control     | ✓     | —         | —         | ✓            | ✓        | ✓            |
-| 3-layer sensitive field protection* | ✓ | — | — | basic | basic | —            |
-| Blind regex DLP masking       | ✓     | —         | —         | —            | —        | —            |
-| PII data masking              | ✓     | —         | —         | ✓            | ✓        | ✓            |
-| Column-level encryption (AES) | ✓     | —         | —         | transit only | —        | —            |
-| Immutable audit log           | ✓     | —         | —         | ✓            | ✓        | ✓            |
-| Circuit breaker               | ✓     | —         | basic     | —            | —        | —            |
-| EXPLAIN ANALYZE analysis      | ✓     | —         | —         | —            | —        | —            |
-| Index recommendations         | ✓     | —         | —         | —            | —        | —            |
-| Slow query detection          | ✓     | —         | —         | —            | basic    | —            |
-| Honeypot table detection      | ✓     | —         | —         | —            | ✓        | —            |
-| Auto-LIMIT injection          | ✓     | —         | —         | —            | —        | —            |
-| NL → SQL (AI + Fallback)      | ✓     | —         | —         | —            | —        | anomaly only |
-| Rate limiting                 | ✓     | —         | —         | —            | —        | ✓            |
-| Open source                   | ✓     | ✓         | ✓         | —            | —        | —            |
-| Self-hostable                 | ✓     | ✓         | ✓         | on-prem      | on-prem  | ✓            |
+| Feature                              | Argus | PgBouncer | Pgpool-II | DataSunrise  | Heimdall | Formal       |
+| ------------------------------------ | ----- | --------- | --------- | ------------ | -------- | ------------ |
+| Connection pooling                   | ✓     | ✓         | ✓         | —            | ✓        | —            |
+| Query caching (Redis)                | ✓     | —         | basic     | —            | ✓        | —            |
+| Read/write routing                   | ✓     | —         | ✓         | —            | ✓        | —            |
+| SQL injection detection              | ✓     | —         | —         | ✓            | ✓        | ✓            |
+| Role-based access control            | ✓     | —         | —         | ✓            | ✓        | ✓            |
+| 3-layer sensitive field protection\* | ✓     | —         | —         | basic        | basic    | —            |
+| Blind regex DLP masking              | ✓     | —         | —         | —            | —        | —            |
+| PII data masking                     | ✓     | —         | —         | ✓            | ✓        | ✓            |
+| Column-level encryption (AES)        | ✓     | —         | —         | transit only | —        | —            |
+| Immutable audit log                  | ✓     | —         | —         | ✓            | ✓        | ✓            |
+| Circuit breaker                      | ✓     | —         | basic     | —            | —        | —            |
+| EXPLAIN ANALYZE analysis             | ✓     | —         | —         | —            | —        | —            |
+| Index recommendations                | ✓     | —         | —         | —            | —        | —            |
+| Slow query detection                 | ✓     | —         | —         | —            | basic    | —            |
+| Honeypot table detection             | ✓     | —         | —         | —            | ✓        | —            |
+| Auto-LIMIT injection                 | ✓     | —         | —         | —            | —        | —            |
+| NL → SQL (AI + Fallback)             | ✓     | —         | —         | —            | —        | anomaly only |
+| Rate limiting                        | ✓     | —         | —         | —            | —        | ✓            |
+| Open source                          | ✓     | ✓         | ✓         | —            | —        | —            |
+| Self-hostable                        | ✓     | ✓         | ✓         | on-prem      | on-prem  | ✓            |
 
-*3-layer: Query-level blocking + RBAC masking + Blind DLP pattern matching
+\*3-layer: Query-level blocking + RBAC masking + Blind DLP pattern matching
 
 ### Argus's Edge
 

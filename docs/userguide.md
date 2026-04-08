@@ -161,6 +161,7 @@ HTTP Status: **403 Forbidden** 🔒
 The system protects sensitive fields (passwords, tokens, API keys) at THREE different levels:
 
 **Layer 1: Query-Level Blocking (Your Primary Guard)**
+
 - Blocks explicit references to sensitive fields: `hashed_password`, `password`, `token`, `api_key`, `secret`, `internal_notes`
 - Examples of blocked queries:
   - ❌ `SELECT id, hashed_password FROM users` → 403 Forbidden
@@ -168,12 +169,14 @@ The system protects sensitive fields (passwords, tokens, API keys) at THREE diff
 - **This is the main line of defense** — prevents direct sensitive field access
 
 **Layer 2: RBAC Masking (Safety Net)**
+
 - Even if you use `SELECT *` (wildcard), your role restricts which columns you can see
 - Admin role: Sees everything
 - Readonly role: Sensitive columns removed from results
 - Guest role: Even more columns hidden
 
 **Layer 3: Blind DLP Regex (Last Mile)**
+
 - Even if something slipped through, all string values are scanned for patterns
 - Emails masked: `alice@company.com` → `a****@company.com`
 - SSNs masked: `123-45-6789` → `****-**-6789`
@@ -496,8 +499,9 @@ curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
 ```
 
 **What happens behind the scenes:**
+
 1. Groq LLM generates: `SELECT * FROM users`
-2. Argus checks for LIMIT clause (missing!) 
+2. Argus checks for LIMIT clause (missing!)
 3. Argus auto-injects LIMIT 1000: `SELECT * FROM users LIMIT 1000`
 4. Executes against replica database
 5. Applies RBAC masking: removes `hashed_password`, `internal_notes` for non-admin users
@@ -584,11 +588,13 @@ LIMIT 5
 **Why LIMIT 5 (not 1000)?**
 
 Argus detects "top 5" pattern BEFORE calling Groq and pre-enforces the correct LIMIT. This ensures:
+
 - ✅ Semantic accuracy (questions asking for "top N" get exactly N results)
 - ✅ Zero LLM ambiguity (prevents "top 5" being interpreted as 1000)
 - ✅ Instant answer (pattern matching returns result <10ms, no LLM call)
 
 **Pattern Matching Guardrails (Pre-LLM):**
+
 - "top 5" → `LIMIT 5`
 - "how many" → `COUNT(*)`
 - "average salary" → `AVG(salary)`
