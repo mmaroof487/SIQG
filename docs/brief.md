@@ -1,4 +1,4 @@
-# Argus — Secure Intelligent Query Gateway
+# <img src="../frontend-ts/public/argus-logo.png" width="35" alt="Argus Sentinel Logo" />rgus — Secure Intelligent Query Gateway
 
 **Version:** 1.0.0-final
 **Stack:** Python 3.11+ · FastAPI · PostgreSQL · Redis · React

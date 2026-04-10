@@ -69,13 +69,13 @@ services:
       - argus_net
 
   frontend:
-    build: ./frontend
+    build: ./frontend-ts
     ports:
       - "3001:3001"
     depends_on:
       - gateway
     volumes:
-      - ./frontend:/app
+      - ./frontend-ts:/app
     networks:
       - argus_net
 

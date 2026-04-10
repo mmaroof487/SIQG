@@ -248,7 +248,7 @@ print_header "TIER 3: Frontend Build (Steps 11-15)"
 
 # Step 11: React app scaffold
 TEST="Step 11: React app files exist"
-if [ -f "frontend/src/main.jsx" ] && [ -f "frontend/src/App.jsx" ]; then
+if [ -f "frontend-ts/src/main.tsx" ] && [ -f "frontend-ts/src/App.tsx" ]; then
     test_pass "$TEST"
 else
     test_fail "$TEST" "React app files missing"
@@ -256,34 +256,34 @@ fi
 
 # Step 12: NL→SQL UI panel
 TEST="Step 12: NL query panel component"
-if [ -f "frontend/src/components/NLQueryPanel.jsx" ]; then
+if [ -f "frontend-ts/src/components/NLQueryPanel.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "NLQueryPanel.jsx not found"
+    test_fail "$TEST" "NLQueryPanel.tsx not found"
 fi
 
 # Step 13: Results table
 TEST="Step 13: Results table component"
-if [ -f "frontend/src/components/ResultsTable.jsx" ]; then
+if [ -f "frontend-ts/src/components/ResultsTable.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "ResultsTable.jsx not found"
+    test_fail "$TEST" "ResultsTable.tsx not found"
 fi
 
 # Step 14: Live metrics dashboard
 TEST="Step 14: Metrics dashboard component"
-if [ -f "frontend/src/components/MetricsDashboard.jsx" ]; then
+if [ -f "frontend-ts/src/components/MetricsDashboard.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "MetricsDashboard.jsx not found"
+    test_fail "$TEST" "MetricsDashboard.tsx not found"
 fi
 
 # Step 15: Health status page
 TEST="Step 15: Health status page"
-if [ -f "frontend/src/components/HealthStatus.jsx" ]; then
+if [ -f "frontend-ts/src/components/HealthStatus.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "HealthStatus.jsx not found"
+    test_fail "$TEST" "HealthStatus.tsx not found"
 fi
 
 echo ""
@@ -398,34 +398,34 @@ fi
 
 # Step 26: Query diff viewer
 TEST="Step 26: Query diff viewer component"
-if [ -f "frontend/src/components/QueryDiffViewer.jsx" ]; then
+if [ -f "frontend-ts/src/pages/QueryPage.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "QueryDiffViewer.jsx not found"
+    test_fail "$TEST" "QueryPage.tsx not found"
 fi
 
 # Step 27: Dry-run UI
 TEST="Step 27: Dry-run panel component"
-if [ -f "frontend/src/components/DryRunPanel.jsx" ]; then
+if [ -f "frontend-ts/src/pages/QueryPage.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "DryRunPanel.jsx not found"
+    test_fail "$TEST" "QueryPage.tsx not found"
 fi
 
 # Step 28: Index DDL copy
 TEST="Step 28: Analysis panel with DDL copy"
-if [ -f "frontend/src/components/AnalysisPanel.jsx" ]; then
+if [ -f "frontend-ts/src/pages/QueryPage.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "AnalysisPanel.jsx not found"
+    test_fail "$TEST" "QueryPage.tsx not found"
 fi
 
 # Step 29: Admin dashboard
 TEST="Step 29: Admin dashboard component"
-if [ -f "frontend/src/components/AdminDashboard.jsx" ]; then
+if [ -f "frontend-ts/src/components/AdminDashboard.tsx" ]; then
     test_pass "$TEST"
 else
-    test_fail "$TEST" "AdminDashboard.jsx not found"
+    test_fail "$TEST" "AdminDashboard.tsx not found"
 fi
 
 # Step 30: HMAC request signing

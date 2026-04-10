@@ -1,4 +1,4 @@
-## User Guide: Complete Step-by-Step Walkthrough
+# <img src="../frontend-ts/public/argus-logo.png" width="35" alt="Argus Sentinel Logo" />rgus User Guide: Complete Step-by-Step Walkthrough
 
 This section shows exactly what you'll see when using Argus, the Secure Intelligent Query Gateway. Everything is explained as if you're a business user (not a developer) who wants to query a database safely and efficiently.
 

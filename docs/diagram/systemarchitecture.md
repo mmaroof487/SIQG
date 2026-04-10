@@ -1,4 +1,4 @@
-# System Architecture — Complete (Tiers 1-6, All 32 Steps)
+# <img src="../../frontend-ts/public/argus-logo.png" width="35" alt="Argus Sentinel Logo" />rgus System Architecture — Complete (Tiers 1-6, All 32 Steps)
 
 ## Overview
 

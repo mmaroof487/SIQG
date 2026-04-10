@@ -1,4 +1,4 @@
-# Argus — Secure Intelligent Query Gateway
+# <img src="frontend-ts/public/argus-logo.png" width="35" alt="Argus Sentinel Logo" />rgus — Secure Intelligent Query Gateway
 
 [![CI](https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml/badge.svg)](https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml)
 ![E2E Tests: 7/7 Passing](https://img.shields.io/badge/E2E%20Tests-7%2F7%20Passing-brightgreen?style=flat-square)

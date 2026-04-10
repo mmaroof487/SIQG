@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #111418;
+  --color-surface-high: #1E252D;
+  --color-surface-low: #0A0C0F;
+  --color-on-surface: #E2E8F0;
+  --color-on-surface-variant: #94A3B8;
+  --color-primary-neon: #00FF9D;
+  --color-primary-container: #003320;
+  --color-error: #FF716C;
+}
+
+@layer base {
+  body {
+    @apply bg-surface-low text-on-surface font-sans;
+  }
+}
