@@ -1986,23 +1986,3 @@ python -m pytest tests/
 ```
 
 ---
-
-## Interview Talking Points
-
-1. **4-layer pipeline**: Every query passes through security, performance, execution, observability — no layer can be skipped.
-
-2. **Redis at every layer**: Brute force counters, rate limit buckets, circuit breaker state, cache, metrics — all in Redis for fast lookups.
-
-3. **Fast-fail security**: IP check before auth, injection detection before execution. Fail as early as possible.
-
-4. **True Caching**: Query fingerprinting + table-tagged invalidation means cache is always correct. True 100% database bypass (caching analysis metadata inline).
-
-5. **Observability built-in**: Trace IDs, audit logs, metrics served via REST API. No external Prometheus/Grafana tools.
-
-6. **Circuit breaker**: When DB fails, gateway fails fast (503) instead of hanging. HALF_OPEN state tests recovery. Production-ready resilience pattern.
-
-7. **Blind DLP Data Masking**: Different roles see different data. Readonly sees masked SSNs/Emails. Blind Regex Data Loss Prevention prevents attackers from stealing data using SQL `AS` aliases.
-
-8. **EXPLAIN ANALYZE**: Post-execution plan analysis → index recommendations. Rule-based engine suggests CREATE INDEX DDL.
-
----
