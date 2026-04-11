@@ -10,7 +10,6 @@ RUN npm config set fetch-timeout 120000 && \
     npm config set registry https://registry.npmjs.org && \
     npm ci --prefer-offline --no-audit --legacy-peer-deps
 
-
 COPY . .
 
 EXPOSE 3001
