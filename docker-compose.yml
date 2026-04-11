@@ -76,6 +76,10 @@ services:
       - gateway
     volumes:
       - ./frontend-ts:/app
+      - /app/node_modules
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - argus_net
 
