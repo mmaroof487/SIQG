@@ -15,7 +15,7 @@ export default function QueryLibraryPage() {
 
   const filteredQueries = queries.filter(q => q.title.toLowerCase().includes(searchQuery.toLowerCase()) || q.description.toLowerCase().includes(searchQuery.toLowerCase()));
 
-  const handleExecute = (title: string) => {
+  const handleExecute = (_title: string) => {
     // In a real app, we would pass the query ID to the context/state, but here we'll just navigate
     navigate("/");
   };

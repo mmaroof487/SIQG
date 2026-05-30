@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api';
-import { Shield, KeyRound, User, Lock } from 'lucide-react';
+import { KeyRound, User, Lock } from 'lucide-react';
 
 export default function LoginPage() {
   const [isRegistering, setIsRegistering] = useState(false);
@@ -10,7 +9,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { MessageSquare, Send, Server, User, Database, ShieldAlert, Sparkles, AlertCircle } from "lucide-react";
+import { MessageSquare, Send, Server, User, Database, Sparkles, AlertCircle } from "lucide-react";
 import { api } from "../utils/api";
 
 type Message = {

@@ -440,3 +440,29 @@ async def get_compliance_report(
             media_type="text/csv",
             headers={"Content-Disposition": f"attachment; filename=compliance-{period}.csv"},
         )
+
+
+@router.get("/rbac-policies")
+async def get_rbac_policies(admin=Depends(require_admin)):
+    """
+    Get the configured role permissions and RBAC policies.
+    """
+    from config import settings
+    
+    roles = settings.rbac_roles
+    time_rules = settings.time_based_rbac
+    
+    policies = []
+    for role_name, config in roles.items():
+        time_rule = time_rules.get(role_name, {})
+        policies.append({
+            "role": role_name,
+            "allowed_tables": config.get("allowed_tables", []),
+            "denied_columns": config.get("denied_columns", []),
+            "allowed_hours": time_rule.get("allowed_hours", "24/7"),
+            "allowed_weekdays": time_rule.get("allowed_weekdays", ["Any"]),
+            "timezone": time_rule.get("timezone", "UTC"),
+            "priority": "High" if role_name == "admin" else "Medium"
+        })
+        
+    return policies

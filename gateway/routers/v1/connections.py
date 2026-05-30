@@ -63,7 +63,7 @@ class ConnectionResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    # conn_str intentionally omitted — never returned to client
+    column_encryption_configs: Optional[List[ColumnEncryptionResponse]] = None
 
 
 class ConnectionTestResponse(BaseModel):
@@ -84,6 +84,23 @@ class ColumnEncryptionResponse(BaseModel):
     created_at: datetime
 
 
+class ColumnSchema(BaseModel):
+    name: str
+    type: str
+    pk: bool
+    nullable: bool
+
+
+class TableSchema(BaseModel):
+    name: str
+    columns: List[ColumnSchema]
+
+
+class SchemaResponse(BaseModel):
+    schema: str
+    tables: List[TableSchema]
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _check_db_type(db_type: str):
@@ -96,6 +113,16 @@ def _check_db_type(db_type: str):
 
 
 def _conn_to_response(conn: UserDatabase) -> ConnectionResponse:
+    configs = []
+    if conn.column_encryption_configs:
+        for c in conn.column_encryption_configs:
+            configs.append(ColumnEncryptionResponse(
+                id=c.id,
+                connection_id=str(c.connection_id),
+                table_name=c.table_name,
+                column_name=c.column_name,
+                created_at=c.created_at
+            ))
     return ConnectionResponse(
         id=str(conn.id),
         display_name=conn.display_name,
@@ -103,6 +130,7 @@ def _conn_to_response(conn: UserDatabase) -> ConnectionResponse:
         is_active=conn.is_active,
         created_at=conn.created_at,
         updated_at=conn.updated_at,
+        column_encryption_configs=configs,
     )
 
 
@@ -241,6 +269,8 @@ async def delete_connection(
     try:
         from utils.connection_manager import invalidate_connection_cache
         await invalidate_connection_cache(request.app.state.redis, connection_id)
+        # Also invalidate schema cache
+        await request.app.state.redis.delete(f"schema:{connection_id}")
     except Exception as cache_err:
         logger.warning(f"Cache purge failed for deleted connection {connection_id}: {cache_err}")
 
@@ -396,3 +426,145 @@ async def remove_column_encryption(
             f"Column encryption removed: config {config_id} from "
             f"{connection_id} by user {user_id}"
         )
+
+
+@router.get("/{connection_id}/schema", response_model=List[SchemaResponse])
+async def get_connection_schema(
+    connection_id: str,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """
+    Get the dynamic schema (tables and columns) of an external database connection.
+    Includes caching in Redis for 5 minutes (300 seconds).
+    """
+    import json
+    import asyncpg
+
+    user_id = request.state.user_id
+    redis_client = request.app.state.redis
+    cache_key = f"schema:{connection_id}"
+
+    # Check cache first
+    try:
+        cached_schema = await redis_client.get(cache_key)
+        if cached_schema:
+            logger.info(f"Schema cache hit for connection {connection_id}")
+            return json.loads(cached_schema)
+    except Exception as cache_read_err:
+        logger.warning(f"Failed to read schema cache for {connection_id}: {cache_read_err}")
+
+    # Cache miss - retrieve connection info and fetch schema
+    import uuid
+    async with PrimarySession() as session:
+        try:
+            conn_uuid = uuid.UUID(connection_id)
+            user_uuid = _safe_user_uuid(user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid connection_id format")
+
+        exist_stmt = select(UserDatabase).where(UserDatabase.id == conn_uuid)
+        exist_res = await session.execute(exist_stmt)
+        conn = exist_res.scalars().first()
+        if conn is None:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        if conn.user_id != user_uuid:
+            raise HTTPException(status_code=403, detail="Not owner of connection")
+
+        if not conn.is_active:
+            raise HTTPException(status_code=400, detail="Connection is inactive")
+
+        try:
+            plain_conn_str = decrypt_value(conn.conn_str_enc)
+        except Exception as dec_err:
+            logger.error(f"Connection string decryption failed for {connection_id}: {dec_err}")
+            raise HTTPException(status_code=500, detail="Failed to decrypt connection credentials")
+
+    try:
+        # Establish transient connection to target database
+        import asyncio
+        asyncpg_conn = await asyncio.wait_for(asyncpg.connect(plain_conn_str), timeout=10.0)
+    except Exception as conn_err:
+        logger.error(f"Failed to connect to target database {connection_id} for schema: {conn_err}")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Could not connect to database: {str(conn_err)[:200]}"
+        )
+
+    try:
+        # Query column metadata and primary key constraints
+        query = """
+            SELECT 
+                c.table_schema, 
+                c.table_name, 
+                c.column_name, 
+                c.data_type,
+                c.is_nullable,
+                EXISTS (
+                    SELECT 1 
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu 
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    WHERE tc.constraint_type = 'PRIMARY KEY'
+                      AND kcu.table_schema = c.table_schema
+                      AND kcu.table_name = c.table_name
+                      AND kcu.column_name = c.column_name
+                ) as is_pk
+            FROM information_schema.columns c
+            WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY c.table_schema, c.table_name, c.ordinal_position;
+        """
+        rows = await asyncpg_conn.fetch(query)
+    except Exception as query_err:
+        logger.error(f"Failed to query schema on target database {connection_id}: {query_err}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to query database schema: {str(query_err)[:200]}"
+        )
+    finally:
+        await asyncpg_conn.close()
+
+    # Process and group results by schema and table
+    schema_map = {}
+    for r in rows:
+        sch_name = r["table_schema"]
+        tbl_name = r["table_name"]
+        col_name = r["column_name"]
+        col_type = r["data_type"]
+        nullable = r["is_nullable"] == "YES"
+        is_pk = r["is_pk"]
+
+        if sch_name not in schema_map:
+            schema_map[sch_name] = {}
+        if tbl_name not in schema_map[sch_name]:
+            schema_map[sch_name][tbl_name] = []
+
+        schema_map[sch_name][tbl_name].append({
+            "name": col_name,
+            "type": col_type,
+            "pk": is_pk,
+            "nullable": nullable
+        })
+
+    response_data = []
+    for sch_name, tables in schema_map.items():
+        tbl_list = []
+        for tbl_name, columns in tables.items():
+            tbl_list.append({
+                "name": tbl_name,
+                "columns": columns
+            })
+        response_data.append({
+            "schema": sch_name,
+            "tables": tbl_list
+        })
+
+    # Cache in Redis with 5-minute TTL (300 seconds)
+    try:
+        await redis_client.setex(cache_key, 300, json.dumps(response_data))
+    except Exception as cache_err:
+        logger.warning(f"Failed to cache schema for connection {connection_id}: {cache_err}")
+
+    return response_data

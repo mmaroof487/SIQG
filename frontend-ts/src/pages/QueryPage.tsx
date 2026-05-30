@@ -1,10 +1,67 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import NLQueryPanel from "../components/NLQueryPanel";
 import ResultsTable from "../components/ResultsTable";
 import { api } from "../utils/api";
-import { Copy, Play, Zap, TerminalSquare, Search, Download, ChevronRight, Activity, ShieldCheck, Cpu } from "lucide-react";
+import { Copy, Play, Zap, TerminalSquare, Activity, ShieldCheck, Cpu, AlertCircle, Download } from "lucide-react";
 import { useSettings } from "../contexts/SettingsContext";
 import Editor from "@monaco-editor/react";
+
+interface Connection {
+  id: string;
+  display_name: string;
+  db_type: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+function BlockExplainerCard({ info }: { info: { blocked: boolean; block_reasons: string[]; suggested_fix?: string; would_execute?: string; original?: string } }) {
+  return (
+    <div className="bg-error/10 border border-error/30 rounded-2xl p-6 space-y-4 shadow-sm animate-in shake duration-300">
+      <div className="flex items-center gap-3">
+        <div className="p-2 bg-error/20 text-error rounded-xl border border-error/30">
+          <AlertCircle className="w-5 h-5" />
+        </div>
+        <div>
+          <h3 className="font-bold text-error text-lg">Query Rejection Explainer</h3>
+          <span className="text-[10px] bg-error/20 text-error px-2 py-0.5 rounded border border-error/30 uppercase font-black tracking-widest mt-1 inline-block">Security Gate Violation</span>
+        </div>
+      </div>
+      
+      <div className="space-y-2">
+        <p className="text-xs uppercase font-bold tracking-wider text-on-surface-variant">Reason(s) for Block:</p>
+        <ul className="list-disc pl-5 text-sm text-on-surface/90 space-y-1">
+          {info.block_reasons.map((reason, idx) => (
+            <li key={idx} className="font-medium text-error">{reason}</li>
+          ))}
+        </ul>
+      </div>
+
+      {info.suggested_fix && (
+        <div className="p-4 bg-surface/60 border border-surface-high rounded-xl space-y-1">
+          <p className="text-xs uppercase font-bold tracking-wider text-primary-neon">Suggested Fix:</p>
+          <p className="text-sm text-on-surface-variant font-medium">{info.suggested_fix}</p>
+        </div>
+      )}
+
+      {info.would_execute && (
+        <div className="space-y-2">
+          <p className="text-xs uppercase font-bold tracking-wider text-on-surface-variant">Query Sanitization Comparison:</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-widest text-on-surface-variant/50">Submitted Query</span>
+              <pre className="bg-surface p-3 rounded-xl border border-surface-high text-xs text-error overflow-auto font-mono max-h-40 whitespace-pre-wrap">{info.original}</pre>
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-mono tracking-widest text-on-surface-variant/50">Proposed Sanitized Execution</span>
+              <pre className="bg-surface p-3 rounded-xl border border-surface-high text-xs text-primary-neon overflow-auto font-mono max-h-40 whitespace-pre-wrap">{info.would_execute}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function QueryPage() {
 	const { mode } = useSettings();
@@ -18,6 +75,32 @@ export default function QueryPage() {
 	const [dryRun, setDryRun] = useState(false);
 	const [explanation, setExplanation] = useState("");
 
+	// Connections state
+	const [connections, setConnections] = useState<Connection[]>([]);
+	const [selectedConnectionId, setSelectedConnectionId] = useState<string>("default");
+
+	// Block Explainer state
+	const [blockedInfo, setBlockedInfo] = useState<{
+		blocked: boolean;
+		block_reasons: string[];
+		suggested_fix?: string;
+		would_execute?: string;
+		original?: string;
+	} | null>(null);
+
+	useEffect(() => {
+		fetchConnections();
+	}, []);
+
+	const fetchConnections = async () => {
+		try {
+			const res = await api.getConnections();
+			setConnections(res.data.filter((c: Connection) => c.is_active));
+		} catch (err) {
+			console.error("Failed to load connections in query page:", err);
+		}
+	};
+
 	const handleSQLGenerated = (data: any) => {
 		setSqlQuery(data.sql);
 		setOriginalSql(data.sql);
@@ -30,11 +113,12 @@ export default function QueryPage() {
 
 		setIsLoading(true);
 		setError("");
+		setBlockedInfo(null);
 		setResults(null);
 		setAnalysis(null);
 
 		try {
-			const response = await api.executeQuery(query, dryRun);
+			const response = await api.executeQuery(query, dryRun, selectedConnectionId);
 			const data = response.data;
 
 			setResults({
@@ -52,7 +136,19 @@ export default function QueryPage() {
 				analysis: data.analysis,
 			});
 		} catch (err: any) {
-			setError(err.response?.data?.detail || "Query execution failed");
+			const detail = err.response?.data?.detail;
+			if (detail && typeof detail === "object" && detail.blocked) {
+				setBlockedInfo({
+					blocked: true,
+					block_reasons: detail.block_reasons || [],
+					suggested_fix: detail.suggested_fix || detail.suggested_fix_text,
+					would_execute: detail.would_execute || detail.would_execute_sql,
+					original: query,
+				});
+				setError("Query was blocked by the security gateway.");
+			} else {
+				setError(typeof detail === "string" ? detail : (err.message || "Query execution failed"));
+			}
 		} finally {
 			setIsLoading(false);
 		}
@@ -74,13 +170,25 @@ export default function QueryPage() {
 					{(mode === 'power' || sqlQuery) && (
 						<div className="mt-4 border border-surface-high rounded-xl overflow-hidden shadow-inner">
 							<div className="bg-surface p-2 flex justify-between items-center border-b border-surface-high">
-								<div className="flex gap-2 items-center">
+								<div className="flex gap-4 items-center">
 									<span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2">
 										<TerminalSquare className="w-4 h-4" /> SQL Editor
 									</span>
 									{originalSql && sqlQuery !== originalSql && (
 										<span className="text-[10px] bg-error/20 text-error px-2 py-0.5 rounded border border-error/30 uppercase font-black tracking-widest">Tampered</span>
 									)}
+
+									{/* Database Selector Dropdown */}
+									<select
+										value={selectedConnectionId}
+										onChange={(e) => setSelectedConnectionId(e.target.value)}
+										className="bg-surface-high/60 border border-surface-high rounded-lg text-xs font-bold text-on-surface px-3 py-1.5 outline-none focus:border-primary-neon/50 transition-colors cursor-pointer"
+									>
+										<option value="default">Argus Primary (default)</option>
+										{connections.map(c => (
+											<option key={c.id} value={c.id}>{c.display_name}</option>
+										))}
+									</select>
 								</div>
 								
 								<button 
@@ -91,7 +199,7 @@ export default function QueryPage() {
 									<Play className="w-3 h-3" /> {dryRun ? 'Dry Run' : 'Execute'}
 								</button>
 							</div>
-							<div className="h-48 relative relative">
+							<div className="h-48 relative">
 								<Editor
 									height="100%"
 									defaultLanguage="sql"
@@ -117,18 +225,37 @@ export default function QueryPage() {
 					</div>
 				</div>
 
+				{/* Block Explainer Section */}
+				{blockedInfo && (
+					<BlockExplainerCard info={blockedInfo} />
+				)}
+
+				{/* General Error Alert */}
+				{error && !blockedInfo && (
+					<div className="p-4 bg-error/10 border border-error/30 text-error rounded-xl flex items-center gap-3">
+						<AlertCircle className="w-5 h-5 flex-shrink-0" />
+						<span className="text-sm font-medium">{error}</span>
+					</div>
+				)}
+
 				{/* Middle Section: Results */}
 				{results && (
 					<div className="flex flex-col flex-1 bg-surface/40 border border-surface-high rounded-2xl overflow-hidden shadow-sm">
 						<div className="p-4 border-b border-surface-high flex justify-between items-center bg-surface/60">
 							<div className="flex flex-col">
 								<h3 className="font-bold text-on-surface">Execution Results</h3>
-								<div className="text-xs font-mono text-on-surface-variant mt-0.5 opacity-80">
-									{results.rows.length} rows · {analysis?.latencyMs.toFixed(1)}ms · {analysis?.cached ? 'cached' : 'live'}
+								<div className="text-xs font-mono text-on-surface-variant mt-0.5 opacity-80 flex items-center gap-2">
+									<span>{results.rows.length} rows · {analysis?.latencyMs.toFixed(1)}ms · {analysis?.cached ? 'cached' : 'live'}</span>
+									<span className="h-3 w-px bg-surface-high"></span>
+									<span className="text-primary-neon font-semibold uppercase tracking-wider text-[10px] bg-primary-neon/10 border border-primary-neon/20 px-2 py-0.5 rounded">
+										Results from: {selectedConnectionId === "default" ? "Argus Primary (default)" : (connections.find(c => c.id === selectedConnectionId)?.display_name || "External DB")}
+									</span>
 								</div>
 							</div>
 							<div className="flex gap-2">
-								<button className="p-2 hover:bg-surface-high rounded text-on-surface-variant transition-colors" title="Export JSON"><Download className="w-4 h-4" /></button>
+								<button className="p-2 hover:bg-surface-high rounded text-on-surface-variant transition-colors" title="Export JSON">
+									<Download className="w-4 h-4" />
+								</button>
 							</div>
 						</div>
 						
@@ -269,4 +396,3 @@ export default function QueryPage() {
 		</div>
 	);
 }
-

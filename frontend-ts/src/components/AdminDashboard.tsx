@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Trash2, ShieldAlert, Filter, CheckCircle, Database } from 'lucide-react';
+import { RefreshCw, Trash2, ShieldAlert, Filter, CheckCircle, Database, Download } from 'lucide-react';
 import apiClient from '../utils/api';
 
 export default function AdminDashboard() {
@@ -16,6 +16,10 @@ export default function AdminDashboard() {
   // Filters for Audit Log
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterUser, setFilterUser] = useState<string>('');
+
+  // Phase C: Advanced Policies & Compliance Export States
+  const [rbacPolicies, setRbacPolicies] = useState<any[]>([]);
+  const [compliancePeriod, setCompliancePeriod] = useState('30d');
 
   useEffect(() => {
     fetchData();
@@ -39,11 +43,34 @@ export default function AdminDashboard() {
       } else if (activeTab === 'users') {
         const res = await apiClient.get('/admin/users');
         setUsers(res.data.users || res.data || []);
+      } else if (activeTab === 'policies') {
+        const res = await apiClient.get('/admin/rbac-policies');
+        setRbacPolicies(Array.isArray(res.data) ? res.data : []);
       }
     } catch (err) {
       console.error(`Failed to fetch data for ${activeTab}:`, err);
     }
     setLoading(false);
+  };
+
+  const handleExport = async (format: string) => {
+    try {
+      const res = await apiClient.get('/admin/compliance-report', {
+        params: { period: compliancePeriod, format },
+        responseType: 'blob'
+      });
+      const blob = new Blob([res.data], { type: format === 'csv' ? 'text/csv' : 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `compliance-report-${compliancePeriod}.${format}`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error(`Export failed:`, err);
+      alert("Failed to export compliance report.");
+    }
   };
 
   const handleIpRule = async (e: React.FormEvent) => {
@@ -112,7 +139,9 @@ export default function AdminDashboard() {
           { id: 'budget', label: 'Budget Usage' },
           { id: 'whitelist', label: 'Query Whitelist' },
           { id: 'ip_rules', label: 'IP Rules' },
-          { id: 'users', label: 'User Management' }
+          { id: 'users', label: 'User Management' },
+          { id: 'policies', label: 'Security Policies' },
+          { id: 'compliance', label: 'Compliance Export' }
         ].map((tab) => (
           <button
             key={tab.id}
@@ -357,6 +386,113 @@ export default function AdminDashboard() {
                 </div>
               ))}
               {whitelist.length === 0 && <div className="text-center py-12 text-on-surface-variant font-mono text-sm uppercase tracking-wider">No Pre-approved Queries configured</div>}
+            </div>
+          </div>
+        )}
+
+        {/* Security Policies Tab */}
+        {activeTab === 'policies' && (
+          <div className="p-6">
+            <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
+              <span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
+              Active Role-Based Access Control Policies (RBAC)
+            </h2>
+            <div className="overflow-x-auto rounded-xl border border-surface-high">
+              <table className="w-full text-left">
+                <thead className="bg-surface-high/50 border-b border-surface-high">
+                  <tr>
+                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Role</th>
+                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Allowed Tables</th>
+                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Allowed Hours</th>
+                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Priority</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-surface-high/50 bg-surface/50">
+                  {rbacPolicies.map((policy: any) => (
+                    <tr key={policy.role} className="hover:bg-surface-high/30 transition-colors">
+                      <td className="p-4 font-mono text-sm font-bold text-primary-neon">{policy.role}</td>
+                      <td className="p-4 text-sm font-mono text-on-surface">
+                        {policy.allowed_tables?.join(", ") || "*"}
+                      </td>
+                      <td className="p-4 text-sm font-mono text-on-surface font-semibold">
+                        {policy.allowed_hours} ({policy.timezone})
+                      </td>
+                      <td className="p-4 text-sm">
+                        <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${
+                          policy.priority === 'High' 
+                            ? 'bg-error/10 text-error border border-error/20 shadow-[0_0_10px_rgba(255,113,108,0.1)]' 
+                            : 'bg-primary-container/10 text-primary-container border border-primary-container/20'
+                        }`}>
+                          {policy.priority}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {rbacPolicies.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="text-center py-8 text-on-surface-variant font-mono uppercase text-sm">
+                        No security policies loaded
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Compliance Export Tab */}
+        {activeTab === 'compliance' && (
+          <div className="p-6 space-y-6">
+            <h2 className="text-xl font-bold text-on-surface flex items-center gap-2">
+              <span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
+              Compliance Ledger Export
+            </h2>
+            <p className="text-sm text-on-surface-variant">
+              Download standard compliance audits, query performance summaries, and IP rules for offline storage or reporting.
+            </p>
+
+            <div className="bg-surface-high/20 border border-surface-high rounded-xl p-6 space-y-6 max-w-xl">
+              <div className="space-y-3">
+                <label className="text-xs uppercase font-bold tracking-wider text-on-surface-variant block">Report Period</label>
+                <div className="flex gap-4">
+                  {['30d', '60d', '90d'].map((period) => (
+                    <label 
+                      key={period} 
+                      className={`flex-1 flex items-center justify-center p-3 rounded-xl border text-sm font-bold uppercase tracking-wider cursor-pointer transition-all ${
+                        compliancePeriod === period 
+                          ? 'bg-primary-neon/10 border-primary-neon text-primary-neon shadow-[0_0_10px_rgba(0,255,157,0.1)]' 
+                          : 'bg-surface border-surface-high text-on-surface-variant hover:text-on-surface'
+                      }`}
+                    >
+                      <input 
+                        type="radio" 
+                        name="period" 
+                        value={period} 
+                        checked={compliancePeriod === period}
+                        onChange={() => setCompliancePeriod(period)}
+                        className="sr-only"
+                      />
+                      {period}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-4 pt-2">
+                <button 
+                  onClick={() => handleExport('csv')} 
+                  className="flex-1 px-5 py-3 bg-surface hover:bg-surface-high border border-surface-high text-on-surface rounded-xl font-bold uppercase tracking-wider text-xs transition-colors flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4 text-primary-neon" /> Export CSV
+                </button>
+                <button 
+                  onClick={() => handleExport('json')} 
+                  className="flex-1 px-5 py-3 bg-primary-neon text-background hover:bg-primary-neon/90 rounded-xl font-bold uppercase tracking-wider text-xs transition-colors shadow-[0_0_15px_rgba(0,255,157,0.2)] flex items-center justify-center gap-2"
+                >
+                  <Download className="w-4 h-4" /> Export JSON
+                </button>
+              </div>
             </div>
           </div>
         )}

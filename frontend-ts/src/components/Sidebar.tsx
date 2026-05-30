@@ -28,6 +28,11 @@ export default function Sidebar() {
         NL→SQL Chat
       </NavLink>
 
+      <NavLink to="/connections" className={navClass}>
+        <Database className="w-5 h-5 flex-shrink-0" />
+        Connections
+      </NavLink>
+
       <NavLink to="/dashboard" className={navClass}>
         <Activity className="w-5 h-5 flex-shrink-0" />
         Dashboard

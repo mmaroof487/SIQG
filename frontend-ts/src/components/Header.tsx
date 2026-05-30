@@ -1,4 +1,4 @@
-import { Shield, Bell, User, LogOut, Layout } from 'lucide-react';
+import { Bell, User, LogOut } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
 import { api } from '../utils/api';
 

@@ -254,3 +254,176 @@ def test_decrypt_rows_for_columns_skips_non_encrypted_column():
 
     assert result[0]["name"] == "Alice"
     assert result[0]["age"] == "30"
+
+
+# ─── Test: get_connection_schema ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_schema_success():
+    """get_connection_schema successfully retrieves schema metadata and caches it."""
+    from routers.v1.connections import get_connection_schema
+    from models.user_database import UserDatabase
+    import json
+
+    conn_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+
+    mock_db = MagicMock(spec=UserDatabase)
+    mock_db.id = uuid.UUID(conn_id)
+    mock_db.user_id = uuid.UUID(user_id)
+    mock_db.is_active = True
+    mock_db.conn_str_enc = "ENCRYPTED"
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.first.return_value = mock_db
+    mock_session.execute.return_value = mock_result
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None  # Cache miss
+
+    mock_request = MagicMock()
+    mock_request.state.user_id = user_id
+    mock_request.app.state.redis = mock_redis
+
+    mock_conn = AsyncMock()
+    mock_conn.fetch.return_value = [
+        {"table_schema": "public", "table_name": "users", "column_name": "id", "data_type": "uuid", "is_nullable": "NO", "is_pk": True},
+        {"table_schema": "public", "table_name": "users", "column_name": "email", "data_type": "varchar", "is_nullable": "NO", "is_pk": False},
+    ]
+    mock_conn.close = AsyncMock()
+
+    with patch("routers.v1.connections.PrimarySession", return_value=mock_ctx), \
+         patch("routers.v1.connections.decrypt_value", return_value="postgres://plain"), \
+         patch("asyncpg.connect", return_value=mock_conn):
+        
+        res = await get_connection_schema(conn_id, mock_request)
+
+    assert len(res) == 1
+    assert res[0]["schema"] == "public"
+    assert res[0]["tables"][0]["name"] == "users"
+    assert len(res[0]["tables"][0]["columns"]) == 2
+    assert res[0]["tables"][0]["columns"][0]["name"] == "id"
+    assert res[0]["tables"][0]["columns"][0]["pk"] is True
+
+    # Check cache was populated
+    mock_redis.setex.assert_called_once()
+    assert mock_redis.setex.call_args[0][0] == f"schema:{conn_id}"
+
+
+@pytest.mark.asyncio
+async def test_get_schema_not_owner_returns_403():
+    """get_connection_schema raises 403 when user is not the owner of the connection."""
+    from routers.v1.connections import get_connection_schema
+    from models.user_database import UserDatabase
+    from fastapi import HTTPException
+
+    conn_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+    other_user_id = str(uuid.uuid4())
+
+    mock_db = MagicMock(spec=UserDatabase)
+    mock_db.id = uuid.UUID(conn_id)
+    mock_db.user_id = uuid.UUID(other_user_id) # Owned by someone else
+    mock_db.is_active = True
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.first.return_value = mock_db
+    mock_session.execute.return_value = mock_result
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+
+    mock_request = MagicMock()
+    mock_request.state.user_id = user_id
+    mock_request.app.state.redis = mock_redis
+
+    with patch("routers.v1.connections.PrimarySession", return_value=mock_ctx):
+        with pytest.raises(HTTPException) as excinfo:
+            await get_connection_schema(conn_id, mock_request)
+    
+    assert excinfo.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_schema_cache_hit_skips_db():
+    """get_connection_schema returns cached schema directly and skips database calls."""
+    from routers.v1.connections import get_connection_schema
+    import json
+
+    conn_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+
+    cached_data = [
+        {
+            "schema": "public",
+            "tables": [
+                {
+                    "name": "users",
+                    "columns": [
+                        {"name": "id", "type": "uuid", "pk": True, "nullable": False}
+                    ]
+                }
+            ]
+        }
+    ]
+
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = json.dumps(cached_data)
+
+    mock_request = MagicMock()
+    mock_request.state.user_id = user_id
+    mock_request.app.state.redis = mock_redis
+
+    # No PrimarySession patches because it should never reach the database!
+    res = await get_connection_schema(conn_id, mock_request)
+
+    assert res == cached_data
+    mock_redis.get.assert_called_once_with(f"schema:{conn_id}")
+
+
+@pytest.mark.asyncio
+async def test_get_schema_invalidated_on_delete():
+    """delete_connection invalidates the schema cache in Redis."""
+    from routers.v1.connections import delete_connection, UserDatabase
+
+    conn_id = str(uuid.uuid4())
+    user_id = str(uuid.uuid4())
+
+    mock_db = MagicMock(spec=UserDatabase)
+    mock_db.id = uuid.UUID(conn_id)
+    mock_db.user_id = uuid.UUID(user_id)
+    mock_db.is_active = True
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.first.return_value = mock_db
+    mock_session.execute.return_value = mock_result
+    mock_session.commit = AsyncMock()
+
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_redis = AsyncMock()
+    mock_redis.delete = AsyncMock()
+
+    mock_request = MagicMock()
+    mock_request.state.user_id = user_id
+    mock_request.app.state.redis = mock_redis
+
+    with patch("routers.v1.connections.PrimarySession", return_value=mock_ctx), \
+         patch("utils.connection_manager.invalidate_connection_cache", return_value=0):
+        
+        await delete_connection(conn_id, mock_request)
+
+    mock_redis.delete.assert_called_with(f"schema:{conn_id}")

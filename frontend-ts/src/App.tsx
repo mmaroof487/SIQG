@@ -1,3 +1,4 @@
+import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
@@ -10,9 +11,10 @@ import ChatPanelPage from "./pages/ChatPanelPage";
 import SchemaBrowserPage from "./pages/SchemaBrowserPage";
 import QueryLibraryPage from "./pages/QueryLibraryPage";
 import SettingsPage from "./pages/SettingsPage";
+import ConnectionsPage from "./pages/ConnectionsPage";
 import { SettingsProvider } from "./contexts/SettingsContext";
 
-function RequireAuth({ children }: { children: JSX.Element }) {
+function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem("token");
   const location = useLocation();
 
@@ -44,7 +46,8 @@ function App() {
           
           <Route path="/" element={<RequireAuth><QueryPage /></RequireAuth>} />
           <Route path="/chat" element={<RequireAuth><ChatPanelPage /></RequireAuth>} />
-          <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+           <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+          <Route path="/connections" element={<RequireAuth><ConnectionsPage /></RequireAuth>} />
           <Route path="/health" element={<RequireAuth><HealthPage /></RequireAuth>} />
           <Route path="/schema" element={<RequireAuth><SchemaBrowserPage /></RequireAuth>} />
           <Route path="/library" element={<RequireAuth><QueryLibraryPage /></RequireAuth>} />

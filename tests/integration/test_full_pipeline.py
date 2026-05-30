@@ -72,9 +72,27 @@ async def test_admin_endpoints_require_auth(client):
         "/api/v1/admin/slow-queries",
         "/api/v1/admin/heatmap",
         "/api/v1/admin/budget",
+        "/api/v1/admin/rbac-policies",
     ]
     for endpoint in endpoints:
         response = client.get(endpoint)
         assert response.status_code in (401, 403, 422), (
             f"{endpoint} returned {response.status_code}"
         )
+
+
+@pytest.mark.asyncio
+async def test_admin_rbac_policies_success(client, admin_token):
+    """Test admin can fetch RBAC policies successfully."""
+    response = client.get(
+        "/api/v1/admin/rbac-policies",
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert response.status_code == 200
+    policies = response.json()
+    assert isinstance(policies, list)
+    assert len(policies) > 0
+    # The list should contain admin, readonly, guest, etc.
+    roles = [p["role"] for p in policies]
+    assert "admin" in roles
+    assert "readonly" in roles

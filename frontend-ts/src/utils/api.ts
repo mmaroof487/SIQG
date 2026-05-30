@@ -43,19 +43,31 @@ apiClient.interceptors.request.use((config) => {
 });
 
 export const api = {
-	executeQuery: (query: string, dryRun: boolean = false) => apiClient.post("/query/execute", { query, dry_run: dryRun }),
+	getConnections: () => apiClient.get("/connections"),
+	createConnection: (payload: any) => apiClient.post("/connections", payload),
+	testConnection: (id: string) => apiClient.post(`/connections/${id}/test`),
+	deleteConnection: (id: string) => apiClient.delete(`/connections/${id}`),
+	getConnectionSchema: (id: string) => apiClient.get(`/connections/${id}/schema`),
+	executeQuery: (query: string, dryRun: boolean = false, connectionId?: string | null) => {
+		const payload: any = { query, dry_run: dryRun };
+		if (connectionId && connectionId !== "default") {
+			payload.connection_id = connectionId;
+		}
+		return apiClient.post("/query/execute", payload);
+	},
 	nlToSql: (question: string, schemaHint: string = "") => apiClient.post("/ai/nl-to-sql", { question, schema_hint: schemaHint }),
 	explainQuery: (query: string) => apiClient.post("/ai/explain", { query }),
 	explainAnomaly: (metricsData: any) => apiClient.post("/ai/explain-anomaly", { metrics_data: metricsData }),
 	getLiveMetrics: () => apiClient.get("/metrics/live"),
-	checkHealth: () => axios.get(`${API_BASE_URL.replace('/api/v1', '')}/health`),
+	checkHealth: () => axios.get(`${API_BASE.replace('/api/v1', '')}/health`),
 	getStatus: () => apiClient.get("/status"),
 	getAuditLogs: () => apiClient.get("/admin/audit-log"),
 	getSlowQueries: () => apiClient.get("/admin/slow-queries"),
 	getIpRules: () => apiClient.get("/admin/ip-rules"),
 	addIpRule: (rule: any) => apiClient.post("/admin/ip-rules", rule),
 	removeIpRule: (ip: string) => apiClient.delete(`/admin/ip-rules?ip=${ip}`),
-	getComplianceReport: (format: string = 'json') => apiClient.get('/admin/compliance-report', { params: { format }, responseType: 'blob' }),
+	getComplianceReport: (format: string = 'json', period: string = '30d') => apiClient.get('/admin/compliance-report', { params: { format, period }, responseType: 'blob' }),
+	getRbacPolicies: () => apiClient.get("/admin/rbac-policies"),
 	login: (username: string, password: string) => apiClient.post("/auth/login", { username, password }),
 	register: (username: string, email: string, password: string) => apiClient.post("/auth/register", { username, email, password }),
 	logout: () => {
