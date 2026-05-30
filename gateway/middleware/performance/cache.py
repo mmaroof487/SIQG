@@ -12,14 +12,16 @@ async def check_cache(
     request: Request,
     query: str,
     role: str,
+    conn_scope: str = "default",
 ) -> Optional[Any]:
     """
     Check if query result is in cache.
-    Cache key includes: query_fingerprint + role
+    Cache key includes: conn_scope + query_fingerprint + role
+    conn_scope is 'default' for internal queries, or connection_id for external ones.
     """
     redis = request.app.state.redis
     fingerprint = fingerprint_query(query)
-    cache_key = f"argus:cache:{fingerprint}:{role}"
+    cache_key = f"argus:cache:{conn_scope}:{fingerprint}:{role}"
 
     try:
         cached_result = await redis.get(cache_key)
@@ -40,10 +42,12 @@ async def write_cache(
     role: str,
     result: Any,
     ttl: int = None,
+    conn_scope: str = "default",
 ):
     """
     Write query result to cache with table-tagged invalidation.
     Periodically cleans stale tag references to prevent unbounded tag set growth.
+    conn_scope is 'default' for internal queries, or connection_id for external ones.
     """
     if ttl is None:
         from config import settings
@@ -55,8 +59,8 @@ async def write_cache(
     # Extract affected tables
     tables = extract_tables_from_query(query)
 
-    # Cache key: argus:cache:{fingerprint}:{role}
-    cache_key = f"argus:cache:{fingerprint}:{role}"
+    # Cache key: argus:cache:{conn_scope}:{fingerprint}:{role}
+    cache_key = f"argus:cache:{conn_scope}:{fingerprint}:{role}"
 
     try:
         # Store result

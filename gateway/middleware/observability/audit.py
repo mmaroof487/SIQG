@@ -27,6 +27,7 @@ async def write_audit_log(
     slow: bool,
     anomaly_flag: bool,
     error_message: str = None,
+    connection_id: str = None,
 ):
     """Fire-and-forget audit log insertion with exponential backoff retry.
 

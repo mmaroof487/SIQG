@@ -35,12 +35,14 @@ def detect_sql_injection(query: str) -> bool:
     return False
 
 
-async def validate_query(query: str):
+async def validate_query(query: str, allow_ddl: bool = False) -> str:
     """
     Validate query (executed in this order):
-    1. Block dangerous keywords (DROP, DELETE, TRUNCATE, ALTER)
-    2. Detect SQL injection patterns (13 regex patterns)
-    3. Whitelist allowed query types (SELECT, INSERT only)
+    1. Block dangerous keywords (DROP, DELETE, TRUNCATE, ALTER) — unless allow_ddl=True
+    2. Detect SQL injection patterns (13 regex patterns) — always enforced
+    3. Whitelist allowed query types (SELECT, INSERT only) — unless allow_ddl=True
+
+    Returns the stripped/cleaned query string.
     """
     if not query or not isinstance(query, str):
         raise HTTPException(status_code=400, detail="Invalid query")
@@ -50,8 +52,8 @@ async def validate_query(query: str):
     # Extract query type
     first_word = query.split()[0].upper() if query else ""
 
-    # Check if query type is in dangerous list
-    if first_word in DANGEROUS_QUERY_TYPES:
+    # Check if query type is in dangerous list — only when DDL is NOT allowed
+    if not allow_ddl and first_word in DANGEROUS_QUERY_TYPES:
         logger.warning(f"Dangerous query blocked: {first_word}")
         raise HTTPException(
             status_code=400,
@@ -62,7 +64,7 @@ async def validate_query(query: str):
             }
         )
 
-    # Check for SQL injection after query type gate.
+    # Check for SQL injection after query type gate — ALWAYS enforced regardless of allow_ddl.
     if detect_sql_injection(query):
         raise HTTPException(
             status_code=400,
@@ -73,18 +75,22 @@ async def validate_query(query: str):
             }
         )
 
-    # Only allow SELECT and INSERT by default
-    allowed_types = {"SELECT", "INSERT"}
-    if first_word not in allowed_types:
-        logger.warning(f"Disallowed query type: {first_word}")
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "blocked": True,
-                "block_reasons": [f"Query type '{first_word}' is not in the allowed list"],
-                "suggested_fix": "Only SELECT and INSERT queries are allowed",
-            }
-        )
+    # Only allow SELECT and INSERT by default (when not on an external/DDL-allowed connection)
+    if not allow_ddl:
+        allowed_types = {"SELECT", "INSERT"}
+        if first_word not in allowed_types:
+            logger.warning(f"Disallowed query type: {first_word}")
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "blocked": True,
+                    "block_reasons": [f"Query type '{first_word}' is not in the allowed list"],
+                    "suggested_fix": "Only SELECT and INSERT queries are allowed",
+                }
+            )
+
+    # Return the stripped, validated query
+    return query
 
 
 def contains_sensitive_column(sql: str, sensitive_fields: set[str]) -> str | None:

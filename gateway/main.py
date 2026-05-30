@@ -7,7 +7,9 @@ from config import settings
 from utils.db import init_db, close_db
 # IMPORTANT: Import models BEFORE init_db() so SQLAlchemy registers them with Base
 from models import User, APIKey, IPRule, Role, AuditLog, SlowQuery, SLASnapshot, QueryWhitelist
+from models.user_database import UserDatabase, ColumnEncryptionConfig, ConnectionPermissions
 from routers.v1 import auth, query, admin, metrics, ai
+from routers.v1.connections import router as connections_router
 from middleware.security.auth import get_current_user
 from middleware.security.rate_limiter import check_rate_limit
 import logging
@@ -118,6 +120,7 @@ app.include_router(query.router)
 app.include_router(admin.router)
 app.include_router(metrics.router)
 app.include_router(ai.router)
+app.include_router(connections_router)
 
 logger.info("✅ Routers registered")
 
