@@ -56,6 +56,14 @@ class ConnectionCreateRequest(BaseModel):
     conn_str: str  # plain-text — will be encrypted before storage
 
 
+class ColumnEncryptionResponse(BaseModel):
+    id: int
+    connection_id: str
+    table_name: str
+    column_name: str
+    created_at: datetime
+
+
 class ConnectionResponse(BaseModel):
     id: str
     display_name: str
@@ -74,14 +82,6 @@ class ConnectionTestResponse(BaseModel):
 class ColumnEncryptionCreateRequest(BaseModel):
     table_name: str
     column_name: str
-
-
-class ColumnEncryptionResponse(BaseModel):
-    id: int
-    connection_id: str
-    table_name: str
-    column_name: str
-    created_at: datetime
 
 
 class ColumnSchema(BaseModel):

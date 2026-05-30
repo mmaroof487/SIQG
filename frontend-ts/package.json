@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@tailwindcss/vite": "^4.3.0",
     "axios": "^1.15.0",
     "clsx": "^2.1.1",
     "crypto-js": "^4.2.0",
