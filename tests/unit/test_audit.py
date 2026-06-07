@@ -62,6 +62,9 @@ async def test_get_audit_logs(mock_session_cls):
         slow = False
         anomaly_flag = False
         error_message = None
+        query_preview = "SELECT 1"
+        rows_returned = 1
+        cost = 0.5
         created_at = None
 
     mock_result.scalars.return_value.all.return_value = [MockRow()]
