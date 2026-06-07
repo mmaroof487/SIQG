@@ -257,8 +257,8 @@ async def get_current_user(
                                 3600,  # Cache for 1 hour
                                 json.dumps(user_data, default=str)
                             )
-                        except:
-                            pass  # Cache error is not critical
+                        except Exception:
+                            pass  # Cache write error is not critical
 
                         return user_data
         except Exception as e:
