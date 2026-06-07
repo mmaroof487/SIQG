@@ -42,10 +42,22 @@ apiClient.interceptors.request.use((config) => {
 	return config;
 });
 
+apiClient.interceptors.response.use(
+	(response) => response,
+	(error) => {
+		if (error.response && error.response.status === 401) {
+			// Token expired or invalid, auto-logout
+			localStorage.removeItem("token");
+			window.location.href = "/login";
+		}
+		return Promise.reject(error);
+	}
+);
+
 export const api = {
 	getConnections: () => apiClient.get("/connections"),
 	createConnection: (payload: any) => apiClient.post("/connections", payload),
-	testConnection: (id: string) => apiClient.post(`/connections/${id}/test`),
+	testConnection: (id: string) => apiClient.post(`/connections/${id}/test`, {}),
 	deleteConnection: (id: string) => apiClient.delete(`/connections/${id}`),
 	getConnectionSchema: (id: string) => apiClient.get(`/connections/${id}/schema`),
 	executeQuery: (query: string, dryRun: boolean = false, connectionId?: string | null) => {
@@ -55,13 +67,17 @@ export const api = {
 		}
 		return apiClient.post("/query/execute", payload);
 	},
-	nlToSql: (question: string, schemaHint: string = "") => apiClient.post("/ai/nl-to-sql", { question, schema_hint: schemaHint }),
+	nlToSql: (question: string, schemaHint: string = "", connectionId?: string) => apiClient.post("/ai/nl-to-sql", { question, schema_hint: schemaHint, connection_id: connectionId }),
 	explainQuery: (query: string) => apiClient.post("/ai/explain", { query }),
+	getInsights: (query: string, rows: any[], columns: string[]) => apiClient.post("/ai/insights", { query, rows, columns }),
+	schemaChat: (question: string, connectionId: string, activeTable?: string, chatHistory: any[] = []) => apiClient.post("/ai/schema-chat", { question, connection_id: connectionId, active_table: activeTable, chat_history: chatHistory }),
 	explainAnomaly: (metricsData: any) => apiClient.post("/ai/explain-anomaly", { metrics_data: metricsData }),
+	getBudget: () => apiClient.get("/query/budget"),
+	getUserHistory: (limit: number = 50, offset: number = 0) => apiClient.get("/query/history", { params: { limit, offset } }),
 	getLiveMetrics: () => apiClient.get("/metrics/live"),
 	checkHealth: () => axios.get(`${API_BASE.replace('/api/v1', '')}/health`),
 	getStatus: () => apiClient.get("/status"),
-	getAuditLogs: () => apiClient.get("/admin/audit-log"),
+	getAuditLogs: () => apiClient.get("/admin/audit"),
 	getSlowQueries: () => apiClient.get("/admin/slow-queries"),
 	getIpRules: () => apiClient.get("/admin/ip-rules"),
 	addIpRule: (rule: any) => apiClient.post("/admin/ip-rules", rule),

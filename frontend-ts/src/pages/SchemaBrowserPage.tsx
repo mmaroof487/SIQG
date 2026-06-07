@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { api } from "../utils/api";
-import { Database, Table as TableIcon, Columns, Key as KeyIcon, Search, RefreshCw, AlertCircle } from "lucide-react";
+import { Database, Table as TableIcon, Columns, Key as KeyIcon, Search, RefreshCw, AlertCircle, Sparkles, Send, Loader2, Bot, User, Link as LinkIcon } from "lucide-react";
 
 interface Connection {
   id: string;
@@ -14,6 +15,7 @@ interface ColumnMetadata {
   type: string;
   pk: boolean;
   nullable: boolean;
+  fk?: string | null;
 }
 
 interface TableMetadata {
@@ -29,14 +31,65 @@ interface SchemaMetadata {
 }
 
 export default function SchemaBrowserPage() {
+  const location = useLocation();
+  const { initialPrompt, initialDb } = location.state || {};
+
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [selectedConnectionId, setSelectedConnectionId] = useState<string>("default");
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string>(initialDb || "default");
   
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTable, setActiveTable] = useState("users");
   const [isLoading, setIsLoading] = useState(false);
   const [schemaError, setSchemaError] = useState("");
   const [schemas, setSchemas] = useState<SchemaMetadata[]>([]);
+
+  // Chat State
+  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'ai', content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatHistory, isChatLoading]);
+
+  const hasExecutedInitial = useRef(false);
+
+  useEffect(() => {
+    if (initialPrompt && !hasExecutedInitial.current && activeTable) {
+      hasExecutedInitial.current = true;
+      executeChat(initialPrompt);
+    }
+  }, [initialPrompt, activeTable]);
+
+  const executeChat = async (promptText: string) => {
+    if (!promptText.trim() || isChatLoading) return;
+    
+    const newHistory = [...chatHistory, { role: 'user' as const, content: promptText }];
+    setChatHistory(newHistory);
+    setIsChatLoading(true);
+
+    try {
+      const response = await api.schemaChat(promptText, selectedConnectionId, activeTable, chatHistory);
+      setChatHistory([...newHistory, { role: 'ai', content: response.data.answer }]);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || "Error connecting to AI assistant.";
+      setChatHistory([...newHistory, { role: 'ai', content: `❌ ${errorMessage}` }]);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleSendChat = async () => {
+    if (!chatInput.trim() || isChatLoading) return;
+    const text = chatInput;
+    setChatInput("");
+    await executeChat(text);
+  };
 
   // Local/Primary Mock Database Schema
   const schemaMock: SchemaMetadata[] = [
@@ -97,7 +150,11 @@ export default function SchemaBrowserPage() {
   const loadConnections = async () => {
     try {
       const res = await api.getConnections();
-      setConnections(res.data.filter((c: Connection) => c.is_active));
+      const activeConnections = res.data.filter((c: Connection) => c.is_active);
+      setConnections(activeConnections);
+      if (activeConnections.length > 0) {
+        setSelectedConnectionId(activeConnections[0].id);
+      }
     } catch (err) {
       console.error("Failed to load connections in schema page:", err);
     }
@@ -222,8 +279,8 @@ export default function SchemaBrowserPage() {
           </div>
         </div>
 
-        {/* Right Detail Panel */}
-        <div className="w-2/3 bg-surface/60 backdrop-blur-xl border border-surface-high rounded-2xl flex flex-col ring-1 ring-white/5 overflow-hidden">
+        {/* Center Detail Panel */}
+        <div className="w-2/4 bg-surface/60 backdrop-blur-xl border border-surface-high rounded-2xl flex flex-col ring-1 ring-white/5 overflow-hidden">
           {isLoading ? (
             <div className="flex-1 flex flex-col space-y-4 p-8 animate-pulse">
               <div className="h-8 bg-surface-high rounded w-1/4"></div>
@@ -249,14 +306,14 @@ export default function SchemaBrowserPage() {
               </div>
               <div className="p-8 flex-1 overflow-y-auto">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 mb-4">
-                  <Columns className="w-4 h-4" /> Columns Topology
+                  <Columns className="w-4 h-4" /> Columns
                 </h3>
                 <div className="border border-surface-high rounded-xl overflow-hidden">
                   <table className="w-full text-left">
                     <thead className="bg-surface-high/50 border-b border-surface-high">
                       <tr>
-                        <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Field Vector</th>
-                        <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Type Mapping</th>
+                        <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Field</th>
+                        <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Type</th>
                         <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Constraints</th>
                       </tr>
                     </thead>
@@ -265,17 +322,24 @@ export default function SchemaBrowserPage() {
                         <tr key={col.name} className="hover:bg-surface-high/30 transition-colors">
                           <td className="p-4 font-mono font-bold text-sm text-on-surface flex items-center gap-2">
                             {col.pk && <KeyIcon className="w-3.5 h-3.5 text-primary-neon" />}
+                            {col.fk && <LinkIcon className="w-3.5 h-3.5 text-blue-400" />}
                             {col.name}
                           </td>
                           <td className="p-4 font-mono text-xs text-primary-container">{col.type}</td>
                           <td className="p-4">
-                            {col.pk ? (
-                              <span className="px-2 py-1 bg-primary-neon/10 text-primary-neon border border-primary-neon/20 rounded text-xs font-bold uppercase tracking-wider">Primary Key</span>
-                            ) : (
-                              <span className="text-on-surface-variant text-sm flex items-center gap-1">
-                                {col.nullable ? "Nullable" : "NOT NULL"}
-                              </span>
-                            )}
+                            <div className="flex flex-col gap-1 items-start">
+                              {col.pk && (
+                                <span className="px-2 py-1 bg-primary-neon/10 text-primary-neon border border-primary-neon/20 rounded text-xs font-bold uppercase tracking-wider">Primary Key</span>
+                              )}
+                              {col.fk && (
+                                <span className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-xs font-bold uppercase tracking-wider">FK ➝ {col.fk}</span>
+                              )}
+                              {!col.pk && (
+                                <span className="text-on-surface-variant text-sm flex items-center gap-1">
+                                  {col.nullable ? "Nullable" : "NOT NULL"}
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -285,8 +349,71 @@ export default function SchemaBrowserPage() {
               </div>
             </div>
           ) : (
-             <div className="flex-1 flex items-center justify-center text-on-surface-variant font-mono uppercase tracking-widest text-sm">Select a table node from catalog</div>
+             <div className="flex-1 flex items-center justify-center text-on-surface-variant font-mono uppercase tracking-widest text-sm">Select a table</div>
           )}
+        </div>
+
+        {/* Right Panel: AI Schema Chat */}
+        <div className="w-1/4 bg-surface/60 backdrop-blur-xl border border-surface-high rounded-2xl flex flex-col ring-1 ring-white/5 overflow-hidden">
+          <div className="p-4 border-b border-surface-high bg-surface-high/20">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-primary-neon" /> Schema AI
+            </h3>
+            <p className="text-xs text-on-surface-variant mt-1">Ask questions about {activeTableObj ? activeTableObj.name : 'the database'}</p>
+          </div>
+          
+          <div className="flex-1 p-4 overflow-y-auto space-y-4 flex flex-col">
+            {chatHistory.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center opacity-50 space-y-2">
+                <Bot className="w-8 h-8 text-on-surface-variant" />
+                <p className="text-xs text-on-surface-variant">Ask me anything about the schema, tables, or how to query them.</p>
+              </div>
+            ) : (
+              chatHistory.map((msg, i) => (
+                <div key={i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`max-w-[90%] p-3 rounded-xl text-sm ${msg.role === 'user' ? 'bg-primary-neon/20 text-primary-neon border border-primary-neon/30 rounded-br-sm' : 'bg-surface-high border border-surface-high rounded-bl-sm text-on-surface'}`}>
+                    <div className="flex items-center gap-2 mb-1 opacity-70">
+                      {msg.role === 'user' ? <User className="w-3 h-3" /> : <Bot className="w-3 h-3" />}
+                      <span className="text-[10px] font-bold uppercase tracking-wider">{msg.role}</span>
+                    </div>
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  </div>
+                </div>
+              ))
+            )}
+            {isChatLoading && (
+              <div className="flex items-start">
+                <div className="max-w-[90%] p-3 rounded-xl bg-surface-high border border-surface-high rounded-bl-sm text-on-surface flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-primary-neon" />
+                  <span className="text-xs">Thinking...</span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="p-4 border-t border-surface-high bg-surface-high/10">
+            <form 
+              onSubmit={(e) => { e.preventDefault(); handleSendChat(); }}
+              className="flex items-center gap-2"
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask about the schema..."
+                className="flex-1 bg-surface-high border border-surface-high rounded-lg px-3 py-2 text-sm text-on-surface focus:outline-none focus:border-primary-neon/50 transition-colors"
+                disabled={isChatLoading}
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || isChatLoading}
+                className="p-2 bg-primary-neon/20 text-primary-neon rounded-lg hover:bg-primary-neon/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>

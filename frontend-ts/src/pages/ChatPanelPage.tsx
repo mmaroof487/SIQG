@@ -33,7 +33,18 @@ export default function ChatPanelPage() {
 
     try {
       const response = await api.nlToSql(userMessage.content);
-      const sql = response.data.sql;
+      const sql = response.data.generated_sql;
+      
+      if (response.data.status === "error") {
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: response.data.message || "Failed to generate query.",
+          error: true,
+          sql: sql || undefined
+        }]);
+        return;
+      }
       
       let explanation = "";
       try {

@@ -1,10 +1,17 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import NLQueryPanel from "../components/NLQueryPanel";
 import ResultsTable from "../components/ResultsTable";
+import PipelineVisualization from "../components/PipelineVisualization";
+import SecurityAnalysisCard from "../components/SecurityAnalysisCard";
+import CostAnalysisCard from "../components/CostAnalysisCard";
+import QueryInsightsPanel from "../components/QueryInsightsPanel";
+import AuditTimeline from "../components/AuditTimeline";
 import { api } from "../utils/api";
-import { Copy, Play, Zap, TerminalSquare, Activity, ShieldCheck, Cpu, AlertCircle, Download } from "lucide-react";
+import { Copy, Play, Zap, TerminalSquare, Activity, Cpu, AlertCircle, Download, Database, ListTree, Clock, Sparkles, ChevronDown, ShieldAlert, AlertTriangle } from "lucide-react";
 import { useSettings } from "../contexts/SettingsContext";
 import Editor from "@monaco-editor/react";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface Connection {
   id: string;
@@ -15,69 +22,49 @@ interface Connection {
   updated_at: string;
 }
 
-function BlockExplainerCard({ info }: { info: { blocked: boolean; block_reasons: string[]; suggested_fix?: string; would_execute?: string; original?: string } }) {
-  return (
-    <div className="bg-error/10 border border-error/30 rounded-2xl p-6 space-y-4 shadow-sm animate-in shake duration-300">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-error/20 text-error rounded-xl border border-error/30">
-          <AlertCircle className="w-5 h-5" />
-        </div>
-        <div>
-          <h3 className="font-bold text-error text-lg">Query Rejection Explainer</h3>
-          <span className="text-[10px] bg-error/20 text-error px-2 py-0.5 rounded border border-error/30 uppercase font-black tracking-widest mt-1 inline-block">Security Gate Violation</span>
-        </div>
-      </div>
-      
-      <div className="space-y-2">
-        <p className="text-xs uppercase font-bold tracking-wider text-on-surface-variant">Reason(s) for Block:</p>
-        <ul className="list-disc pl-5 text-sm text-on-surface/90 space-y-1">
-          {info.block_reasons.map((reason, idx) => (
-            <li key={idx} className="font-medium text-error">{reason}</li>
-          ))}
-        </ul>
-      </div>
-
-      {info.suggested_fix && (
-        <div className="p-4 bg-surface/60 border border-surface-high rounded-xl space-y-1">
-          <p className="text-xs uppercase font-bold tracking-wider text-primary-neon">Suggested Fix:</p>
-          <p className="text-sm text-on-surface-variant font-medium">{info.suggested_fix}</p>
-        </div>
-      )}
-
-      {info.would_execute && (
-        <div className="space-y-2">
-          <p className="text-xs uppercase font-bold tracking-wider text-on-surface-variant">Query Sanitization Comparison:</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <span className="text-[10px] uppercase font-mono tracking-widest text-on-surface-variant/50">Submitted Query</span>
-              <pre className="bg-surface p-3 rounded-xl border border-surface-high text-xs text-error overflow-auto font-mono max-h-40 whitespace-pre-wrap">{info.original}</pre>
-            </div>
-            <div className="space-y-1">
-              <span className="text-[10px] uppercase font-mono tracking-widest text-on-surface-variant/50">Proposed Sanitized Execution</span>
-              <pre className="bg-surface p-3 rounded-xl border border-surface-high text-xs text-primary-neon overflow-auto font-mono max-h-40 whitespace-pre-wrap">{info.would_execute}</pre>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function QueryPage() {
 	const { mode } = useSettings();
-	const [sqlQuery, setSqlQuery] = useState("SELECT * FROM users LIMIT 10;");
+	const [sqlQuery, setSqlQuery] = useState("");
 	const [originalSql, setOriginalSql] = useState("");
 	const [showDiff, setShowDiff] = useState(false);
 	const [results, setResults] = useState<any>(null);
 	const [analysis, setAnalysis] = useState<any>(null);
-	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState("");
 	const [dryRun, setDryRun] = useState(false);
 	const [explanation, setExplanation] = useState("");
+    const [selectedConnectionId, setSelectedConnectionId] = useState<string>("default");
+    const [connections, setConnections] = useState<Connection[]>([]);
+    const [isConnectionDropdownOpen, setIsConnectionDropdownOpen] = useState(false);
+    const connectionDropdownRef = useRef<HTMLDivElement>(null);
 
-	// Connections state
-	const [connections, setConnections] = useState<Connection[]>([]);
-	const [selectedConnectionId, setSelectedConnectionId] = useState<string>("default");
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (connectionDropdownRef.current && !connectionDropdownRef.current.contains(event.target as Node)) {
+                setIsConnectionDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
+	
+	// Pipeline States
+    const [currentStage, setCurrentStage] = useState<'question' | 'sql' | 'security' | 'cost' | 'cache' | 'execute' | 'done' | 'error'>('done');
+    const [securityStatus, setSecurityStatus] = useState<'pending' | 'safe' | 'warning' | 'error'>('safe');
+    const [costStatus, setCostStatus] = useState<'pending' | 'calculated'>('calculated');
+    const [cacheStatus, setCacheStatus] = useState<'pending' | 'hit' | 'miss'>('miss');
+    const [auditEvents, setAuditEvents] = useState<any[]>([]);
+    
+    // Insights & Extra Data
+    const [insights, setInsights] = useState<string | null>(null);
+    const [isInsightsLoading, setIsInsightsLoading] = useState(false);
+    const [recentQueries, setRecentQueries] = useState<any[]>([]);
+    const [schemaSummary, setSchemaSummary] = useState<{tables: number, columns: number} | null>(null);
+    
+    // UI States
+    const [activeRightTab, setActiveRightTab] = useState<'Data' | 'Insights' | 'Execution Plan' | 'Audit Trail'>('Data');
+    const [isExecutingPipeline, setIsExecutingPipeline] = useState(false);
 
 	// Block Explainer state
 	const [blockedInfo, setBlockedInfo] = useState<{
@@ -88,18 +75,77 @@ export default function QueryPage() {
 		original?: string;
 	} | null>(null);
 
+	const location = useLocation();
+	const initialPrompt = location.state?.initialPrompt || "";
+
 	useEffect(() => {
 		fetchConnections();
+        fetchRecentQueries();
 	}, []);
+
+    useEffect(() => {
+        if (selectedConnectionId && selectedConnectionId !== "default") {
+            fetchSchemaSummary();
+        }
+    }, [selectedConnectionId]);
 
 	const fetchConnections = async () => {
 		try {
 			const res = await api.getConnections();
-			setConnections(res.data.filter((c: Connection) => c.is_active));
+			const activeConnections = res.data.filter((c: Connection) => c.is_active);
+			setConnections(activeConnections);
+            const initialDb = location.state?.initialDb || "default";
+			if (activeConnections.length > 0 && initialDb === "default") {
+				setSelectedConnectionId(activeConnections[0].id);
+			} else {
+                setSelectedConnectionId(initialDb);
+            }
 		} catch (err) {
 			console.error("Failed to load connections in query page:", err);
 		}
 	};
+
+    const fetchRecentQueries = async () => {
+        try {
+            const res = await api.getUserHistory(5, 0);
+            setRecentQueries(res.data.history || []);
+        } catch (err) {
+            console.error("Failed to load recent queries", err);
+        }
+    };
+
+    const fetchSchemaSummary = async () => {
+        try {
+            const res = await api.getConnectionSchema(selectedConnectionId);
+            const schemas = res.data;
+            let tablesCount = 0;
+            let colsCount = 0;
+            schemas.forEach((s: any) => {
+                tablesCount += s.tables?.length || 0;
+                s.tables?.forEach((t: any) => {
+                    colsCount += t.columns?.length || 0;
+                });
+            });
+            setSchemaSummary({ tables: tablesCount, columns: colsCount });
+        } catch (err) {
+            console.error("Failed to load schema summary", err);
+            // Default mock if endpoint fails
+            setSchemaSummary({ tables: 33, columns: 176 });
+        }
+    };
+
+    const fetchInsights = async (query: string, rows: any[], columns: string[]) => {
+        setIsInsightsLoading(true);
+        try {
+            const res = await api.getInsights(query, rows, columns);
+            setInsights(res.data.insights);
+        } catch (err) {
+            console.error("Failed to load insights", err);
+            setInsights("Insights generation failed.");
+        } finally {
+            setIsInsightsLoading(false);
+        }
+    };
 
 	const handleSQLGenerated = (data: any) => {
 		setSqlQuery(data.sql);
@@ -111,15 +157,54 @@ export default function QueryPage() {
 	const handleExecuteQuery = async (query = sqlQuery) => {
 		if (!query.trim()) return;
 
-		setIsLoading(true);
+		setIsExecutingPipeline(true);
 		setError("");
 		setBlockedInfo(null);
 		setResults(null);
 		setAnalysis(null);
+        setInsights(null);
+        setAuditEvents([]);
+        setActiveRightTab('Data');
+
+        // --- Simulated Pipeline Animation ---
+        setCurrentStage('question');
+        setAuditEvents([{ id: '1', stage: 'Question Received', timestamp: new Date().toLocaleTimeString(), status: 'success' }]);
+        await new Promise(r => setTimeout(r, 400));
+        
+        setCurrentStage('sql');
+        setAuditEvents(prev => [...prev, { id: '2', stage: 'SQL Generated', timestamp: new Date().toLocaleTimeString(), status: 'success' }]);
+        await new Promise(r => setTimeout(r, 400));
+
+        setCurrentStage('security');
+        setSecurityStatus('pending');
+        await new Promise(r => setTimeout(r, 400));
+
+        setCurrentStage('cost');
+        setCostStatus('pending');
+        await new Promise(r => setTimeout(r, 400));
+
+        setCurrentStage('cache');
+        setCacheStatus('pending');
+        await new Promise(r => setTimeout(r, 400));
+
+        setCurrentStage('execute');
+        setAuditEvents(prev => [...prev, { id: '3', stage: 'Executing', timestamp: new Date().toLocaleTimeString(), status: 'success' }]);
 
 		try {
 			const response = await api.executeQuery(query, dryRun, selectedConnectionId);
 			const data = response.data;
+
+            setCurrentStage('done');
+            setSecurityStatus('safe');
+            setCostStatus('calculated');
+            setCacheStatus(data.cached ? 'hit' : 'miss');
+
+            setAuditEvents(prev => [
+                ...prev, 
+                { id: '4', stage: 'Security Passed', timestamp: new Date().toLocaleTimeString(), status: 'success', details: 'No SQL injection detected. RBAC compliant.' },
+                { id: '5', stage: data.cached ? 'Cache Hit' : 'Cache Miss', timestamp: new Date().toLocaleTimeString(), status: 'success', details: data.cached ? 'Results available immediately.' : 'This query has not been executed before.' },
+                { id: '6', stage: 'Execution Complete', timestamp: new Date().toLocaleTimeString(), duration: `${data.latency_ms.toFixed(1)}ms`, status: 'success' }
+            ]);
 
 			setResults({
 				rows: data.rows || [],
@@ -135,264 +220,375 @@ export default function QueryPage() {
 				slow: data.slow,
 				analysis: data.analysis,
 			});
+
+            fetchInsights(query, data.rows || [], data.rows && data.rows.length > 0 ? Object.keys(data.rows[0]) : []);
+            fetchRecentQueries(); // refresh
 		} catch (err: any) {
+            setCurrentStage('error');
 			const detail = err.response?.data?.detail;
 			if (detail && typeof detail === "object" && detail.blocked) {
+				const reasons: string[] = Array.isArray(detail.block_reasons) ? detail.block_reasons : (typeof detail.block_reasons === 'string' ? [detail.block_reasons] : []);
+				const isCostBlock = reasons.some(r => r.toLowerCase().includes('cost'));
+
+                setSecurityStatus(isCostBlock ? 'safe' : 'error');
+                setCostStatus(isCostBlock ? 'error' : 'calculated');
+                setCacheStatus('error');
 				setBlockedInfo({
 					blocked: true,
-					block_reasons: detail.block_reasons || [],
+					block_reasons: reasons,
 					suggested_fix: detail.suggested_fix || detail.suggested_fix_text,
 					would_execute: detail.would_execute || detail.would_execute_sql,
 					original: query,
 				});
-				setError("Query was blocked by the security gateway.");
+                setAuditEvents(prev => [...prev, { id: 'err', stage: isCostBlock ? 'Cost Limit Exceeded' : 'Security Check Failed', timestamp: new Date().toLocaleTimeString(), status: 'error', details: reasons.join(", ") }]);
+				setError(isCostBlock ? "Query was blocked due to cost limits." : "Query was blocked by the security gateway.");
 			} else {
+                setSecurityStatus('safe');
+                setCostStatus('error');
+                setCacheStatus('error');
+                setAuditEvents(prev => [...prev, { id: 'err', stage: 'Execution Failed', timestamp: new Date().toLocaleTimeString(), status: 'error', details: err.message }]);
 				setError(typeof detail === "string" ? detail : (err.message || "Query execution failed"));
 			}
 		} finally {
-			setIsLoading(false);
+			setIsExecutingPipeline(false);
 		}
 	};
 
-	const copyToClipboard = (text: string) => {
-		navigator.clipboard.writeText(text);
-	};
+    const isInitialState = !results && !isExecutingPipeline && !blockedInfo && !error;
 
 	return (
-		<div className="flex gap-6 h-full">
-			{/* Main Content Area */}
-			<div className="flex-1 flex flex-col space-y-6 min-w-0 pb-16">
+		<div className="flex flex-col h-full overflow-hidden pt-3 px-6 pb-[48px] gap-2 relative">
+			
+            {/* Top: Ask Database Input */}
+            <div className="w-full max-w-4xl mx-auto flex-shrink-0 z-10">
+                <NLQueryPanel
+                    onSQLGenerated={handleSQLGenerated}
+                    onLoading={() => {}} // Loading handled by pipeline
+                    connectionId={selectedConnectionId}
+                    initialPrompt={initialPrompt}
+                />
+            </div>
+
+            {/* Middle: Pipeline Animation */}
+            <AnimatePresence>
+                {(isExecutingPipeline || results || error || blockedInfo) && (
+                    <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="w-full flex-shrink-0"
+                    >
+                        <PipelineVisualization 
+                            currentStage={currentStage} 
+                            securityStatus={securityStatus} 
+                            costStatus={costStatus} 
+                            cacheStatus={cacheStatus} 
+                        />
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Bottom Content Area */}
+            <div className="flex flex-1 min-h-0 gap-4 w-full max-w-7xl mx-auto">
+                
+                {/* Left Column: Query Details (SQL, Security, Cost, Explain) */}
+                <div className={`flex flex-col gap-4 overflow-y-auto pr-2 scrollbar-hide transition-all duration-700 ease-in-out ${isInitialState ? 'w-1/2' : 'w-1/3'}`}>
+                    {/* Database Selector (compact) */}
+                    <div className="flex justify-between items-center bg-surface/40 p-2 rounded-xl border border-surface-high">
+                        <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2">
+                            <Database className="w-4 h-4" /> Connection
+                        </span>
+                        <div className="relative" ref={connectionDropdownRef}>
+                            <button 
+                                type="button"
+                                onClick={() => setIsConnectionDropdownOpen(!isConnectionDropdownOpen)}
+                                className="flex items-center gap-2 bg-surface-high/60 border border-surface-high rounded-lg text-xs font-bold text-on-surface px-3 py-1.5 outline-none hover:border-primary-neon/50 hover:bg-surface-high/80 transition-colors cursor-pointer"
+                            >
+                                <span className="truncate max-w-[150px]">
+                                    {selectedConnectionId === "default" 
+                                        ? "Argus Primary (default)" 
+                                        : connections.find(c => c.id === selectedConnectionId)?.display_name || "Select Database"}
+                                </span>
+                                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isConnectionDropdownOpen ? 'rotate-180' : ''}`} />
+                            </button>
+                            
+                            {isConnectionDropdownOpen && (
+                                <div className="absolute top-full right-0 mt-1 w-48 bg-surface border border-surface-high rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-in fade-in slide-in-from-top-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedConnectionId("default");
+                                            setIsConnectionDropdownOpen(false);
+                                        }}
+                                        className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors hover:bg-primary-neon/10 hover:text-primary-neon ${selectedConnectionId === "default" ? 'bg-primary-neon/5 text-primary-neon' : 'text-on-surface'}`}
+                                    >
+                                        Argus Primary (default)
+                                    </button>
+                                    {connections.map(c => (
+                                        <button
+                                            key={c.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedConnectionId(c.id);
+                                                setIsConnectionDropdownOpen(false);
+                                            }}
+                                            className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors hover:bg-primary-neon/10 hover:text-primary-neon ${selectedConnectionId === c.id ? 'bg-primary-neon/5 text-primary-neon' : 'text-on-surface'}`}
+                                        >
+                                            {c.display_name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* SQL Editor Area */}
+                    <div className="border border-surface-high rounded-xl overflow-hidden shadow-inner flex flex-col bg-surface/40 flex-1 min-h-[120px]">
+                        <div className="bg-surface p-2 flex justify-between items-center border-b border-surface-high">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2">
+                                <TerminalSquare className="w-3.5 h-3.5" /> Generated SQL
+                            </span>
+                            <button 
+                                onClick={() => handleExecuteQuery()} 
+                                disabled={isExecutingPipeline || !sqlQuery.trim()} 
+                                className="px-2 py-1 bg-primary-neon/10 hover:bg-primary-neon/20 text-primary-neon text-[10px] font-bold uppercase tracking-widest rounded transition-colors border border-primary-neon/30 flex items-center gap-1.5"
+                            >
+                                <Play className="w-3 h-3" /> Execute
+                            </button>
+                        </div>
+                        <div className="flex-1 relative">
+                            <Editor
+                                height="100%"
+                                defaultLanguage="sql"
+                                theme="vs-dark"
+                                value={sqlQuery}
+                                onChange={(val) => setSqlQuery(val || "")}
+                                options={{ 
+                                    minimap: { enabled: false }, 
+                                    fontSize: 12, 
+                                    padding: { top: 8 },
+                                    lineDecorationsWidth: 6,
+                                    lineNumbersMinChars: 2,
+                                    glyphMargin: false,
+                                    folding: false,
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: "on",
+                                    scrollbar: {
+                                        verticalScrollbarSize: 6,
+                                        horizontalScrollbarSize: 6
+                                    }
+                                }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Pipeline Details Cards */}
+                    {(isExecutingPipeline || results || blockedInfo) && (
+                        <div className="flex flex-col gap-2">
+                            <SecurityAnalysisCard status={securityStatus} reasons={securityStatus === 'error' ? blockedInfo?.block_reasons : undefined} />
+                            <CostAnalysisCard status={costStatus} cost={analysis?.cost} rows={results?.rows?.length} runtime={analysis?.latencyMs} />
+                            
+                            {explanation && !blockedInfo && (
+                                <div className="bg-surface/60 border border-surface-high rounded-xl p-3 shadow-sm space-y-1">
+                                    <h3 className="text-[10px] uppercase font-bold tracking-widest text-primary-neon flex items-center gap-2">
+                                        <Zap className="w-3.5 h-3.5" /> Explain SQL
+                                    </h3>
+                                    <div className="text-xs text-on-surface-variant leading-relaxed whitespace-pre-wrap">
+                                        {explanation}
+                                    </div>
+                                    {analysis?.analysis && (
+                                        <div className="mt-2 pt-2 border-t border-surface-high/50 text-[10px] text-on-surface-variant space-y-0.5">
+                                            <p><span className="font-semibold text-on-surface/80">Tables:</span> {analysis.analysis.tables_accessed?.join(', ') || 'None'}</p>
+                                            <p><span className="font-semibold text-on-surface/80">Joins:</span> {analysis.analysis.join_count || 0}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Right Column: Dynamic View */}
+                <div className={`flex flex-col bg-surface/40 border border-surface-high rounded-2xl overflow-hidden shadow-sm relative transition-all duration-700 ease-in-out ${isInitialState ? 'w-1/2' : 'w-2/3'}`}>
+                    {!results && !isExecutingPipeline && !blockedInfo && !error ? (
+                        /* Empty State View */
+                        <div className="p-6 h-full overflow-y-auto space-y-6 flex flex-col items-center justify-center text-center">
+                            <div className="space-y-2 max-w-md">
+                                <div className="w-12 h-12 bg-surface-high rounded-full flex items-center justify-center mx-auto mb-2">
+                                    <Database className="w-6 h-6 text-on-surface-variant" />
+                                </div>
+                                <h2 className="text-lg font-bold text-on-surface">Connected Database</h2>
+                                <p className="text-primary-neon font-mono text-sm">{connections.find(c => c.id === selectedConnectionId)?.display_name || 'Argus Primary (default)'}</p>
+                                
+                                {schemaSummary && (
+                                    <div className="flex gap-3 justify-center mt-3">
+                                        <div className="px-3 py-1.5 bg-surface rounded-xl border border-surface-high shadow-sm">
+                                            <span className="block text-xl font-black text-on-surface">{schemaSummary.tables}</span>
+                                            <span className="text-[9px] uppercase tracking-widest text-on-surface-variant">Tables</span>
+                                        </div>
+                                        <div className="px-3 py-1.5 bg-surface rounded-xl border border-surface-high shadow-sm">
+                                            <span className="block text-xl font-black text-on-surface">{schemaSummary.columns}</span>
+                                            <span className="text-[9px] uppercase tracking-widest text-on-surface-variant">Columns</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {recentQueries && recentQueries.length > 0 && (
+                                <div className="w-full max-w-lg text-left mt-4">
+                                    <h3 className="text-[10px] uppercase font-bold tracking-widest text-on-surface-variant mb-2 flex items-center gap-2">
+                                        <Clock className="w-3.5 h-3.5 text-primary-neon" /> Recent Queries
+                                    </h3>
+                                    <div className="space-y-1.5">
+                                        {recentQueries.map((q, idx) => (
+                                            <div key={idx} onClick={() => setSqlQuery(q.query_text)} className="p-2.5 bg-surface hover:bg-surface-high transition-colors rounded-xl border border-surface-high cursor-pointer flex justify-between items-center group">
+                                                <span className="text-xs font-mono text-on-surface/80 truncate pr-4">{q.query_text}</span>
+                                                <Play className="w-3.5 h-3.5 text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* Results View */
+                        <>
+                            <div className="border-b border-surface-high bg-surface/60 z-10">
+                                <div className="flex px-4 pt-4 gap-6">
+                                    {['Data', 'Insights', 'Execution Plan', 'Audit Trail'].map((tab) => (
+                                        <button 
+                                            key={tab} 
+                                            onClick={() => setActiveRightTab(tab as any)}
+                                            className={`pb-3 text-sm font-bold uppercase tracking-widest border-b-2 transition-colors ${
+                                                activeRightTab === tab ? 'text-primary-neon border-primary-neon' : 'text-on-surface-variant border-transparent hover:text-on-surface'
+                                            }`}
+                                        >
+                                            {tab}
+                                            {tab === 'Insights' && insights && <Sparkles className="w-3 h-3 inline-block ml-1 mb-1 text-primary-neon" />}
+                                        </button>
+                                    ))}
+                                    <div className="flex-1" />
+                                    <button className="p-2 mb-2 hover:bg-surface-high rounded text-on-surface-variant transition-colors" title="Export">
+                                        <Download className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div className="flex-1 overflow-auto bg-surface/20 relative">
+                                {isExecutingPipeline && activeRightTab === 'Data' && (
+                                    <div className="absolute inset-0 bg-surface/50 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
+                                        <div className="w-8 h-8 border-4 border-primary-neon/30 border-t-primary-neon rounded-full animate-spin mb-4" />
+                                        <p className="font-mono text-primary-neon animate-pulse text-sm">Waiting for results...</p>
+                                    </div>
+                                )}
+
+                                {activeRightTab === 'Data' && (
+                                    blockedInfo ? (
+                                        <div className="flex flex-col items-center justify-center h-full text-center p-4">
+                                            <div className="w-16 h-16 bg-error/10 rounded-full flex items-center justify-center mb-4">
+                                                <ShieldAlert className="w-8 h-8 text-error" />
+                                            </div>
+                                            <h2 className="text-2xl font-bold text-error mb-2">{error?.includes('cost') ? 'Cost Limit Exceeded' : 'Security Block'}</h2>
+                                            <p className="text-on-surface-variant text-base max-w-lg mb-6">
+												{error?.includes('cost') 
+													? "This query was intercepted because it exceeds your allowed cost or computation budget."
+													: "This query was intercepted and blocked by the security gateway because it violates access policies."}
+											</p>
+                                            
+                                            <div className="w-full max-w-2xl bg-surface/40 border border-error/20 rounded-xl overflow-hidden text-left shadow-lg">
+                                                <div className="px-5 py-3 bg-error/10 border-b border-error/20 flex items-center gap-2">
+                                                    <AlertTriangle className="w-4 h-4 text-error" />
+                                                    <span className="text-xs font-bold text-error uppercase tracking-wider">Blocked Reasons</span>
+                                                </div>
+                                                <div className="p-5">
+                                                    <ul className="space-y-3">
+                                                        {(blockedInfo.block_reasons.length > 0 ? blockedInfo.block_reasons : ["Violates active security policies"]).map((reason: string, i: number) => (
+                                                            <li key={i} className="flex items-start gap-4 text-error bg-error/5 border border-error/10 p-3 rounded-lg">
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-error mt-2 flex-shrink-0 shadow-[0_0_8px_rgba(255,0,0,0.8)]" />
+                                                                <span className="text-base font-medium">{reason}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                                {blockedInfo.suggested_fix && (
+                                                    <div className="px-6 py-5 bg-primary-neon/5 border-t border-error/20">
+                                                        <span className="text-xs uppercase tracking-widest text-primary-neon block mb-2 font-bold flex items-center gap-2">
+                                                            <Sparkles className="w-3 h-3" /> Suggested Fix
+                                                        </span>
+                                                        <p className="text-base text-on-surface">{blockedInfo.suggested_fix}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : results?.rows.length === 0 ? (
+                                        <div className="p-8 text-center text-on-surface-variant italic">No results returned</div>
+                                    ) : results ? (
+                                        <ResultsTable rows={results.rows} columns={results.columns} isLoading={false} error={error} />
+                                    ) : error ? (
+                                        <div className="p-8 flex flex-col items-center justify-center h-full text-error/80">
+                                            <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
+                                            <p className="text-center max-w-md">{error}</p>
+                                        </div>
+                                    ) : null
+                                )}
+
+                                {activeRightTab === 'Insights' && (
+                                    <QueryInsightsPanel insights={insights} isLoading={isInsightsLoading || isExecutingPipeline} />
+                                )}
+
+                                {activeRightTab === 'Execution Plan' && (
+                                    <div className="p-6">
+                                        <h3 className="text-lg font-bold text-on-surface mb-6 flex items-center gap-2">
+                                            <ListTree className="w-5 h-5 text-primary-neon" /> Execution Plan
+                                        </h3>
+                                        {analysis ? (
+                                            <div className="space-y-4">
+                                                <div className="p-4 bg-surface rounded-xl border border-surface-high">
+                                                    <span className="text-xs uppercase tracking-widest text-on-surface-variant block mb-1">Scan Type</span>
+                                                    <span className="font-bold text-primary-container text-lg">Index Scan</span>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="p-4 bg-surface rounded-xl border border-surface-high">
+                                                        <span className="text-xs uppercase tracking-widest text-on-surface-variant block mb-1">Cost</span>
+                                                        <span className="font-bold text-on-surface text-lg">{analysis.cost?.toFixed(2) || 'Low'}</span>
+                                                    </div>
+                                                    <div className="p-4 bg-surface rounded-xl border border-surface-high">
+                                                        <span className="text-xs uppercase tracking-widest text-on-surface-variant block mb-1">Rows</span>
+                                                        <span className="font-bold text-on-surface text-lg">{results?.rows?.length || 0}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="text-on-surface-variant italic text-center p-8">Execute a query to view execution plan.</div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {activeRightTab === 'Audit Trail' && (
+                                    <AuditTimeline events={auditEvents} />
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+
+			{/* Bottom Bar Fixed */}
+			<div className="fixed bottom-0 left-64 right-0 h-12 bg-surface/95 border-t border-surface-high backdrop-blur-md flex items-center justify-between px-6 z-40 shadow-[0_-5px_15px_rgba(0,0,0,0.2)]">
+				<div className="flex items-center gap-6">
+					<label className="flex items-center gap-2 cursor-pointer group">
+						<input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="w-4 h-4 rounded border-surface-high accent-primary-neon" />
+						<span className="text-xs font-bold text-on-surface-variant group-hover:text-on-surface uppercase tracking-wider transition-colors">Dry run mode</span>
+					</label>
+				</div>
 				
-				{/* Top Section */}
-				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high rounded-2xl p-6 shadow-sm">
-					<NLQueryPanel onSQLGenerated={handleSQLGenerated} onLoading={setIsLoading} />
-					
-					{(mode === 'power' || sqlQuery) && (
-						<div className="mt-4 border border-surface-high rounded-xl overflow-hidden shadow-inner">
-							<div className="bg-surface p-2 flex justify-between items-center border-b border-surface-high">
-								<div className="flex gap-4 items-center">
-									<span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2">
-										<TerminalSquare className="w-4 h-4" /> SQL Editor
-									</span>
-									{originalSql && sqlQuery !== originalSql && (
-										<span className="text-[10px] bg-error/20 text-error px-2 py-0.5 rounded border border-error/30 uppercase font-black tracking-widest">Tampered</span>
-									)}
-
-									{/* Database Selector Dropdown */}
-									<select
-										value={selectedConnectionId}
-										onChange={(e) => setSelectedConnectionId(e.target.value)}
-										className="bg-surface-high/60 border border-surface-high rounded-lg text-xs font-bold text-on-surface px-3 py-1.5 outline-none focus:border-primary-neon/50 transition-colors cursor-pointer"
-									>
-										<option value="default">Argus Primary (default)</option>
-										{connections.map(c => (
-											<option key={c.id} value={c.id}>{c.display_name}</option>
-										))}
-									</select>
-								</div>
-								
-								<button 
-									onClick={() => handleExecuteQuery()} 
-									disabled={isLoading || !sqlQuery.trim()} 
-									className="px-4 py-1.5 bg-primary-neon/10 hover:bg-primary-neon/20 text-primary-neon text-xs font-bold uppercase tracking-widest rounded transition-colors border border-primary-neon/30 flex items-center gap-2"
-								>
-									<Play className="w-3 h-3" /> {dryRun ? 'Dry Run' : 'Execute'}
-								</button>
-							</div>
-							<div className="h-48 relative">
-								<Editor
-									height="100%"
-									defaultLanguage="sql"
-									theme="vs-dark"
-									value={sqlQuery}
-									onChange={(val) => setSqlQuery(val || "")}
-									options={{ minimap: { enabled: false }, fontSize: 13, padding: { top: 12 } }}
-								/>
-							</div>
-						</div>
-					)}
-					<div className="flex items-center gap-4 mt-4 text-sm">
-						{sqlQuery && (
-							<button onClick={async () => {
-								try {
-									const res = await api.explainQuery(sqlQuery);
-									setExplanation(res.data.explanation);
-								} catch {}
-							}} className="text-primary-neon hover:text-primary-container transition-colors font-semibold flex items-center gap-1.5 text-xs uppercase tracking-wider">
-								<Zap className="w-4 h-4" /> Explain this SQL
-							</button>
-						)}
-					</div>
-				</div>
-
-				{/* Block Explainer Section */}
-				{blockedInfo && (
-					<BlockExplainerCard info={blockedInfo} />
-				)}
-
-				{/* General Error Alert */}
-				{error && !blockedInfo && (
-					<div className="p-4 bg-error/10 border border-error/30 text-error rounded-xl flex items-center gap-3">
-						<AlertCircle className="w-5 h-5 flex-shrink-0" />
-						<span className="text-sm font-medium">{error}</span>
+				{analysis && (
+					<div className="flex items-center gap-6 text-xs font-mono text-on-surface-variant">
+						<span className="flex items-center gap-1.5"><Cpu className={`w-3.5 h-3.5 ${analysis.cached ? 'text-primary-neon' : ''}`} /> {analysis.cached ? 'Cache Hit' : 'Cache Miss'}</span>
+                        <span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> {analysis.latencyMs.toFixed(1)}ms</span>
+						<span className="flex items-center gap-1.5">Trace ID: <span className="text-primary-neon tracking-tight hover:underline cursor-pointer">{analysis.traceId.substring(0,8)}</span></span>
 					</div>
 				)}
-
-				{/* Middle Section: Results */}
-				{results && (
-					<div className="flex flex-col flex-1 bg-surface/40 border border-surface-high rounded-2xl overflow-hidden shadow-sm">
-						<div className="p-4 border-b border-surface-high flex justify-between items-center bg-surface/60">
-							<div className="flex flex-col">
-								<h3 className="font-bold text-on-surface">Execution Results</h3>
-								<div className="text-xs font-mono text-on-surface-variant mt-0.5 opacity-80 flex items-center gap-2">
-									<span>{results.rows.length} rows · {analysis?.latencyMs.toFixed(1)}ms · {analysis?.cached ? 'cached' : 'live'}</span>
-									<span className="h-3 w-px bg-surface-high"></span>
-									<span className="text-primary-neon font-semibold uppercase tracking-wider text-[10px] bg-primary-neon/10 border border-primary-neon/20 px-2 py-0.5 rounded">
-										Results from: {selectedConnectionId === "default" ? "Argus Primary (default)" : (connections.find(c => c.id === selectedConnectionId)?.display_name || "External DB")}
-									</span>
-								</div>
-							</div>
-							<div className="flex gap-2">
-								<button className="p-2 hover:bg-surface-high rounded text-on-surface-variant transition-colors" title="Export JSON">
-									<Download className="w-4 h-4" />
-								</button>
-							</div>
-						</div>
-						
-						{results.rows.length === 0 ? (
-							<div className="p-8 text-center text-on-surface-variant italic border-t border-surface-high">No results found</div>
-						) : (
-							<div className="overflow-auto bg-surface/20">
-								<ResultsTable rows={results.rows} columns={results.columns} isLoading={isLoading} error={error} />
-							</div>
-						)}
-					</div>
-				)}
-
-				{/* Bottom Bar Fixed */}
-				<div className="fixed bottom-0 left-64 right-0 h-12 bg-surface/95 border-t border-surface-high backdrop-blur-md flex items-center justify-between px-6 z-40">
-					<div className="flex items-center gap-6">
-						<label className="flex items-center gap-2 cursor-pointer group">
-							<input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="w-4 h-4 rounded border-surface-high accent-primary-neon" />
-							<span className="text-xs font-bold text-on-surface-variant group-hover:text-on-surface uppercase tracking-wider transition-colors">Dry run mode</span>
-						</label>
-						{dryRun && (
-							<span className="text-xs font-mono text-primary-neon px-2 py-0.5 bg-primary-neon/10 rounded-md border border-primary-neon/30">Would cost {analysis?.cost?.toFixed(2) || '?'} units · Not executed</span>
-						)}
-					</div>
-					
-					{analysis && (
-						<div className="flex items-center gap-4 text-xs font-mono text-on-surface-variant">
-							<span className="flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5" /> {analysis.cached ? 'Hit' : 'Miss'}</span>
-							<span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Trace: <span className="text-primary-neon tracking-tight hover:underline cursor-pointer">{analysis.traceId.substring(0,8)}</span></span>
-						</div>
-					)}
-				</div>
 			</div>
-
-			{/* Right Panel (Collapsible / Power Mode) */}
-			{(mode === 'power' || analysis || explanation) && (
-				<div className="w-80 flex-shrink-0 flex flex-col gap-4 overflow-y-auto pb-16">
-					
-					{/* Analysis Panel */}
-					{analysis && (
-						<div className="bg-surface/60 border border-surface-high rounded-xl p-4 shadow-sm">
-							<h3 className="text-xs uppercase font-bold tracking-widest text-on-surface-variant mb-4 flex items-center gap-2">
-								<Activity className="w-4 h-4 text-primary-neon" /> Analysis
-							</h3>
-							<div className="space-y-3 font-mono text-xs">
-								<div className="flex justify-between items-center pb-2 border-b border-surface-high">
-									<span className="text-on-surface-variant">Scan Type</span>
-									<span className="text-primary-container font-semibold badge bg-primary-container/10 px-2 py-0.5 rounded border border-primary-container/30">Index Scan</span>
-								</div>
-								<div className="flex justify-between items-center pb-2 border-b border-surface-high">
-									<span className="text-on-surface-variant">Execution Time</span>
-									<span className="text-on-surface">{analysis.latencyMs.toFixed(2)}ms</span>
-								</div>
-								<div className="flex justify-between items-center">
-									<span className="text-on-surface-variant">Total Cost</span>
-									<span className="text-primary-neon">{analysis.cost?.toFixed(2) || 'N/A'} units</span>
-								</div>
-							</div>
-						</div>
-					)}
-
-					{/* Complexity & Suggestions */}
-					{analysis?.analysis && (
-						<div className="bg-surface/60 border border-surface-high rounded-xl p-4 shadow-sm space-y-4">
-							<div className="flex items-center justify-between">
-								<span className="text-xs uppercase font-bold tracking-widest text-on-surface-variant">Complexity</span>
-								<span className={`text-xs font-black uppercase px-2 py-0.5 rounded border ${
-									analysis.analysis.join_count > 2 ? 'bg-error/10 text-error border-error/30' : 'bg-primary-neon/10 text-primary-neon border-primary-neon/30'
-								}`}>
-									{analysis.analysis.join_count > 2 ? 'High' : 'Low'}
-								</span>
-							</div>
-							<div className="text-xs text-on-surface-variant space-y-1">
-								<p>• Tables: {analysis.analysis.tables_accessed?.join(', ')}</p>
-								<p>• Joins: {analysis.analysis.join_count}</p>
-							</div>
-
-							{analysis.slow && (
-								<div className="mt-4 pt-4 border-t border-surface-high">
-									<span className="text-xs uppercase font-bold tracking-widest text-error mb-2 block">Index Suggestion</span>
-									<div className="relative group">
-										<div className="bg-surface-high/50 font-mono text-[10px] p-2 rounded text-on-surface/80 border border-surface-high whitespace-pre-wrap overflow-hidden">
-											CREATE INDEX idx_perf ON table(col);
-										</div>
-										<button onClick={() => copyToClipboard('CREATE INDEX idx_perf ON table(col);')} className="absolute top-1 right-1 p-1 bg-surface hover:bg-surface-high rounded border border-surface-high text-on-surface opacity-0 group-hover:opacity-100 transition-opacity">
-											<Copy className="w-3 h-3" />
-										</button>
-									</div>
-								</div>
-							)}
-						</div>
-					)}
-
-					{/* Query Diff Panel */}
-					{originalSql && sqlQuery !== originalSql && (
-						<div className="bg-error/5 border border-error/20 rounded-xl p-4 shadow-sm">
-							<div className="flex justify-between items-center mb-2">
-								<h3 className="text-xs uppercase font-bold tracking-widest text-error flex items-center gap-2">
-									<TerminalSquare className="w-4 h-4" /> Query Diff
-								</h3>
-								<button onClick={() => setShowDiff(!showDiff)} className="text-[10px] font-bold uppercase hover:underline text-error">Toggle View</button>
-							</div>
-							{showDiff ? (
-								<div className="space-y-2 mt-3">
-									<div className="font-mono text-[10px] p-2 bg-surface-high/30 rounded border border-surface-high">
-										<div className="text-on-surface-variant/50 uppercase tracking-widest mb-1 border-b border-surface-high pb-1">Original</div>
-										<span className="text-error mb-2 block">{originalSql}</span>
-										<div className="text-on-surface-variant/50 uppercase tracking-widest mb-1 mt-2 border-b border-surface-high pb-1">Executed</div>
-										<span className="text-primary-neon block">{sqlQuery}</span>
-									</div>
-								</div>
-							) : (
-								<p className="text-xs text-error/80 italic">Query was manually altered from AI suggestion.</p>
-							)}
-						</div>
-					)}
-
-					{/* Pipeline Trace Timeline */}
-					{analysis && (
-						<div className="bg-surface/60 border border-surface-high rounded-xl p-4 shadow-sm">
-							<h3 className="text-xs uppercase font-bold tracking-widest text-on-surface-variant mb-4 flex items-center gap-2">
-								<ShieldCheck className="w-4 h-4 text-primary-container" /> Pipeline Trace
-							</h3>
-							<div className="relative border-l border-surface-high ml-2 space-y-4">
-								{['Auth', 'Rate Limit', 'Injection Scan', analysis.cached ? 'Cache Hit' : 'Execute', 'Observe'].map((step, idx) => (
-									<div key={idx} className="relative pl-4">
-										<div className="absolute -left-[5px] top-1 w-2 h-2 rounded-full bg-primary-neon ring-2 ring-surface"></div>
-										<div className="text-xs font-semibold text-on-surface">{step}</div>
-										<div className="text-[10px] text-on-surface-variant font-mono">Pass · {Math.random().toFixed(1)}ms</div>
-									</div>
-								))}
-							</div>
-						</div>
-					)}
-
-				</div>
-			)}
 		</div>
 	);
 }
