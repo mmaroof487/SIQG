@@ -1,8 +1,8 @@
 # Argus — Prioritized Feature Integration Plan
 
-> **Generated:** 2026-04-04 | **Updated:** 2026-04-06
-> **Current state:** 151+ tests passing, **ALL 32 STEPS COMPLETE** (Tiers 1-6 DONE), frontend built, CI green, load test numbers in README
-> **Completed:** All security fixes (Tier 1), AI reliability (Tier 2), frontend build (Tier 3), proof & metrics (Tier 4), backend extensions (Tier 5), polish features (Tier 6 Steps 25-32)
+> **Generated:** 2026-04-04 | **Updated:** 2026-06
+> **Current state:** 163+ tests passing, **ALL 32 STEPS COMPLETE** (Tiers 1-6 DONE) + **Phase B (Multi-DB Workbench + AI Security Guards + Auth Hardening) COMPLETE**
+> **Completed:** All security fixes (Tier 1), AI reliability (Tier 2), frontend build (Tier 3), proof & metrics (Tier 4), backend extensions (Tier 5), polish features (Tier 6 Steps 25-32), Phase B hardening pass
 > **Naming:** Use **Argus** everywhere (code, docs, UI, tests). Not SIQG, not Queryx.
 
 ---
@@ -17,7 +17,7 @@
 | **4** | 🟥 Proof (CI + metrics) | ~2.5d       | Green badge, load test numbers, README             |
 | **5** | 🟧 Backend extensions   | ~4d         | Rate tiers, API scoping, whitelisting              |
 | **6** | 🟩 Polish               | ~4d         | Time-based RBAC, HMAC, compliance export           |
-| **7** | ⚪ Future vision        | Don't build | ML anomaly, multi-DB, ABAC — mention only          |
+| **7** | ⚪ Future vision        | Don't build | ML anomaly, ABAC — mention only (multi-DB ✅ shipped in Phase B) |
 
 **Critical path to demoable product: Tiers 1–4 (~11 days)**
 
@@ -598,7 +598,7 @@ Check boxes as you complete them. Skip nothing in Tier 1.
 | ------------------------- | ----------------------------------------------------------------- |
 | ML Anomaly Detection      | Isolation Forest on 30d audit logs replacing hardcoded thresholds |
 | Policy Simulation Mode    | "72 existing queries would be blocked if this rule applied"       |
-| Multi-Database Support    | MySQL, SQLServer, Snowflake via SQLAlchemy dialects               |
+| Multi-Database Support    | ✅ **SHIPPED (Phase B)** — per-user PostgreSQL connections, schema explorer, encrypted conn strings |
 | Advanced RBAC / ABAC      | OPA policy engine for attribute-based access                      |
 | Scheduled Queries         | Cron-based automated reports with email delivery                  |
 | Query Versioning          | Git-style diff/rollback for saved queries                         |
@@ -745,5 +745,78 @@ Every doc in the repo must be updated as features land. Here's the mapping:
 - API client: `Response<T>`, `QueryResult`, `MetricsSnapshot` interfaces
 - Store/context (if added): Typed selectors
 - No `any` types—use `unknown` with type guards
+
+---
+
+## Phase B — Security Hardening + Multi-DB Workbench ✅ COMPLETE
+
+> Implemented after the original 32 steps. All items below are deployed and tested.
+
+### B-1 — Auth Registration Validation
+- [x] Pydantic `field_validator` on `RegisterRequest`: username regex, email format, password letter+digit requirement
+- [x] Whitespace stripping on username and password inputs
+- [x] `is_active` enforced on `/auth/login` → HTTP 403 if account disabled
+- [x] `is_active` enforced on `/auth/refresh` → HTTP 403 if account disabled
+- [x] `role.value` extracted before `create_jwt()` (prevents `'Role.readonly'` string in JWT)
+- [x] 5-minute token refresh grace window (`verify_exp=False` + manual `exp + 300s` check)
+- [x] Refresh re-reads `role` from DB (reflects role changes without full logout)
+- [x] Fixed bare `except:` → `except Exception as e:` in API key cache write
+
+✅ **COMPLETED** (2026-06)
+
+---
+
+### B-2 — Frontend Auth & RBAC
+- [x] `useNavigate('/dashboard', { replace: true })` on login (replaces `window.location.href`)
+- [x] `parseErrorDetail()` handles Pydantic v2 array validation errors (`field: message`)
+- [x] Live password strength bar on register (Weak / Fair / Good / Strong)
+- [x] Client-side validation mirrors backend rules (username regex, password complexity)
+- [x] `RequireAdmin` component wraps `/admin` route — reads JWT role, redirects non-admin to `/dashboard`
+
+✅ **COMPLETED** (2026-06)
+
+---
+
+### B-3 — AI Security Guards
+- [x] AI rate limiter: 20 req/min per user across all 5 AI endpoints (Redis INCR per minute bucket)
+- [x] AI topic enforcer: 60+ SQL/DB keywords required in input; rejects off-domain LLM abuse
+- [x] Input length cap: 2000 characters max
+- [x] Both guards applied as shared FastAPI dependency to all AI endpoints
+- [x] Schema Chat endpoint added: `POST /api/v1/ai/schema-chat`
+
+✅ **COMPLETED** (2026-06)
+
+---
+
+### B-4 — Multi-Database Workbench
+- [x] `UserDatabase` model with AES-256-GCM encrypted connection string
+- [x] `POST /connections` — register external PostgreSQL DB
+- [x] `POST /connections/{id}/test` — connectivity test (SELECT 1)
+- [x] `GET /connections/{id}/schema` — table/column/index introspection
+- [x] `DELETE /connections/{id}` — remove connection (ownership enforced)
+- [x] `ColumnEncryptionConfig` model for per-connection column encryption rules
+- [x] Per-connection circuit breaker: `argus:circuit:{connection_id}`
+- [x] Query routing via `connection_id` field in execute request
+- [x] Cache namespace per connection: `argus:cache:{connection_id}:*`
+
+✅ **COMPLETED** (2026-06)
+
+---
+
+### Remaining Open Issues (Pre-Production)
+
+| # | Severity | Item |
+|---|----------|------|
+| C-1 | 🔴 | Rotate `GROQ_API_KEY` — committed to repo |
+| C-2 | 🔴 | HMAC validation always returns `True` — not enforced |
+| C-4 | 🔴 | CORS `allow_origins=["*"]` — set explicit domain list |
+| C-5 | 🔴 | JWT in `localStorage` — XSS risk |
+| H-1 | 🟠 | SQL `--` comment regex false positives |
+| H-2 | 🟠 | `UNION ALL SELECT` not blocked |
+| H-4 | 🟠 | Raw DB error messages on external connection failures |
+| H-5 | 🟠 | Brute force per-IP only — no per-account counter |
+| M-4 | 🟡 | `redis.keys()` O(N) in budget — use SCAN |
+| M-7 | 🟡 | `datetime.utcnow()` deprecated — use `timezone.utc` |
+
 
 ---

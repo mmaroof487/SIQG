@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml/badge.svg)](https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml)
 ![E2E Tests: 7/7 Passing](https://img.shields.io/badge/E2E%20Tests-7%2F7%20Passing-brightgreen?style=flat-square)
-![Unit Tests: 150+](https://img.shields.io/badge/Unit%20Tests-150%2B-brightgreen?style=flat-square)
+![Unit Tests: 163+](https://img.shields.io/badge/Unit%20Tests-163%2B-brightgreen?style=flat-square)
 ![Code Coverage: 71%+](https://img.shields.io/badge/Coverage-71%25%2B-brightgreen?style=flat-square)
 ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue?style=flat-square)
 ![AI: GROQ + Fallback](https://img.shields.io/badge/AI-GROQ%20%2B%20Fallback-blueviolet?style=flat-square)
@@ -33,7 +33,7 @@ Argus is a **SQL Intelligence Gateway** that acts as a trusted intermediary betw
 
 ✅ **Blocks SQL injection & unsafe queries** (DROP, DELETE protection)
 ✅ **Caches results intelligently** (6-10x speedup)
-✅ **Enforces rate limiting** (60 req/min per user)
+✅ **Enforces rate limiting** (admin: 500/min · readonly: 60/min · guest: 10/min)
 ✅ **Masks sensitive data** (passwords, tokens auto-stripped)
 ✅ **Converts natural language to SQL** (via Groq + fallback to mock)
 ✅ **Explains any SQL query** in plain English
@@ -167,13 +167,16 @@ Three interactive pages:
 ### 🔒 Security (Layer 1)
 
 - **SQL Injection Protection**: Pattern-based detection blocks malicious queries
-- **Dangerous Query Blocking**: DROP, DELETE, TRUNCATE detection
+- **Dangerous Query Blocking**: DROP, DELETE, TRUNCATE, EXEC blocked
 - **Sensitive Field Guards**: `hashed_password`, `token`, `api_key` explicitly blocked at query level
-- **Rate Limiting**: 60 requests/minute per user (sliding window)
+- **Per-Role Rate Limiting**: admin: 500/min · readonly: 60/min · guest: 10/min (sliding window)
+- **AI Rate Limiting**: Separate 20 req/min cap per user across all AI endpoints
+- **AI Topic Enforcement**: Off-domain inputs (non-SQL/DB) rejected before hitting the LLM
 - **RBAC Masking**: Sensitive columns stripped from results based on role
-- **IP Filtering**: Whitelist/blacklist for network-level access control
-- **Brute Force Detection**: Failed login attempt throttling
-- **Honeypot Tables**: Decoy tables that trigger security alerts
+- **Auth Hardening**: Input validation on register, `is_active` checks, 5-min token refresh grace
+- **IP Filtering**: Whitelist/blocklist for network-level access control
+- **Brute Force Detection**: 5 failed logins → 15-minute lockout per IP
+- **Honeypot Tables**: Decoy tables that trigger security alerts + auto-ban
 
 ### ⚡ Performance (Layer 2)
 
@@ -187,11 +190,13 @@ Three interactive pages:
 ### 🧠 AI Intelligence (Layer 6)
 
 - **NL→SQL**: Convert "Top 5 users" → `SELECT ... LIMIT 5`
-- **Query Explainer**: "counts users grouped by role sorted by count"
-- **Dual-Mode AI**:
-  - **Primary**: Groq LLM (real AI, impressive)
-  - **Fallback**: Mock LLM (instant, reliable, safe)
-- **Smart Pattern Matching**: "top N users" pattern triggered before LLM
+- **Query Explainer**: Plain English explanation of any SQL
+- **Data Insights**: Pattern analysis of query result sets
+- **Schema Chat**: Natural language questions about your database schema
+- **Anomaly Explainer**: LLM-powered severity analysis of rate spikes
+- **Dual-Mode AI**: Groq LLM primary → Mock fallback (zero failures)
+- **AI Guards**: 20 req/min rate limit + SQL/DB topic enforcement on all AI endpoints
+- **Smart Pattern Matching**: "top N" / "count by" patterns applied before LLM call
 
 ### 📊 Observability (Layer 4 & 5)
 
@@ -481,26 +486,51 @@ BUDGET_PER_MINUTE=1000.0
 
 ### Authentication
 
-- `POST /api/v1/auth/register` - Create account
-- `POST /api/v1/auth/login` - Get access token
-- `POST /api/v1/auth/refresh` - Renew token
+- `POST /api/v1/auth/register` — Create account (username/email/password validated)
+- `POST /api/v1/auth/login` — Get JWT token (brute-force protected)
+- `POST /api/v1/auth/refresh` — Renew token (5-minute grace window)
 
 ### Query Execution
 
-- `POST /api/v1/query/execute` - Run SQL query
-- `GET /api/v1/query/budget` - Check remaining budget
-- `GET /api/v1/metrics/live` - View live metrics
-- `GET /api/v1/status` - System health check
+- `POST /api/v1/query/execute` — Run SQL through full 6-layer pipeline
+- `POST /api/v1/query/dry-run` — Preview pipeline without executing
+- `GET /api/v1/query/budget` — Check remaining daily budget
+- `GET /api/v1/query/history` — Paginated query history
 
-### AI Features
+### AI Features (all protected: 20/min rate limit + topic guard)
 
-- `POST /api/v1/ai/nl-to-sql` - Natural language → SQL
-- `POST /api/v1/ai/explain` - Explain any SQL query
+- `POST /api/v1/ai/nl-to-sql` — Natural language → SQL
+- `POST /api/v1/ai/explain` — Explain any SQL in plain English
+- `POST /api/v1/ai/insights` — Data insights from query results
+- `POST /api/v1/ai/explain-anomaly` — AI anomaly severity analysis
+- `POST /api/v1/ai/schema-chat` — Natural language schema Q&A
 
-### Admin
+### Multi-Database Connections
 
-- `GET /api/v1/audit/logs` - View audit trail
-- `GET /api/v1/metrics/heatmap` - Table access heatmap
+- `GET /api/v1/connections` — List your registered DB connections
+- `POST /api/v1/connections` — Register external PostgreSQL connection
+- `POST /api/v1/connections/{id}/test` — Test connectivity
+- `DELETE /api/v1/connections/{id}` — Remove connection
+- `GET /api/v1/connections/{id}/schema` — Explore tables, columns, indexes
+
+### Observability
+
+- `GET /api/v1/metrics/live` — Real-time metrics
+- `GET /api/v1/metrics/heatmap` — Table access heatmap
+
+### Admin (requires `admin` role)
+
+- `GET /api/v1/admin/audit` — Query audit trail
+- `GET /api/v1/admin/slow-queries` — Slow query log
+- `GET /api/v1/admin/ip-rules` — IP allow/blocklist
+- `POST /api/v1/admin/ip-rules` — Add IP rule
+- `GET /api/v1/admin/rbac-policies` — View RBAC policies
+- `GET /api/v1/admin/compliance-report` — Export compliance report (JSON/CSV)
+
+### System
+
+- `GET /health` — Health check (no auth)
+- `GET /api/v1/status` — Detailed component status
 
 ---
 
@@ -588,13 +618,15 @@ This is a **systems design project** that shows:
 
 | Metric            | Value                  |
 | ----------------- | ---------------------- |
-| **Lines of Code** | 3,500+                 |
-| **Python Files**  | 30+                    |
-| **Test Count**    | 150+ (unit + E2E)      |
+| **Lines of Code** | 4,000+                 |
+| **Python Files**  | 35+                    |
+| **Test Count**    | 163+ (unit + E2E)      |
 | **Code Coverage** | 71%+                   |
-| **API Routes**    | 12+                    |
+| **API Routes**    | 25+                    |
 | **Layers**        | 6 (security → AI)      |
 | **Integration Steps** | 32 (all complete ✅) across 6 Tiers |
+| **AI Endpoints**  | 5 (all rate-limited + topic-guarded) |
+| **Multi-DB**      | Per-user external PostgreSQL connections |
 | **Time to Test**  | ~90 seconds            |
 | **Docker Images** | 3 (gateway, DB, redis) |
 | **Cache Speedup** | 6-10x                  |
@@ -628,8 +660,9 @@ This is a **systems design project** that shows:
 
 ### "Rate limit exceeded"
 
-- Limit is 60 req/min per user
-- Wait 60 seconds for sliding window reset
+- Query rate limits: admin 500/min · readonly 60/min · guest 10/min
+- AI rate limit: 20/min for all roles across all AI endpoints
+- Wait 60 seconds for the sliding window to reset
 
 ### "Access to sensitive field blocked"
 
@@ -661,22 +694,18 @@ This is a **systems design project** that shows:
 
 ---
 
-## Planned Features (Scheduled Implementation)
+## Security Notes
 
-The following features are on the product roadmap but not yet implemented:
+Before going to production, address these items:
 
-### Step 24: Query Whitelist Mode
-**Status:** Planned for Phase 7
-- Fingerprint-based approval workflow for high-risk queries
-- Admin dashboard to approve/deny new query patterns
-- Enterprise compliance use case (financial institutions requiring query audit approval)
+- **Rotate `GROQ_API_KEY`** — if it was ever committed to git, regenerate it immediately
+- **Set `CORS allow_origins`** — replace `["*"]` with your explicit domain list
+- **JWT storage** — current implementation uses `localStorage` (XSS risk); consider migrating to `HttpOnly` cookies
+- **HMAC signing** — `validate_hmac_signature()` currently always returns `True`; wire in real enforcement
+- **Database credentials** — change all defaults from `argus/argus` before production
+- **`SECRET_KEY`** — generate a cryptographically random 32+ byte value
 
-### Step 32: AI Anomaly Explanation
-**Status:** Implemented, requires external network access
-- AI-powered incident explanation (anomaly type, severity, recommended action)
-- Requires `AI_ENABLED=true` and network connectivity to LLM provider (Groq, OpenAI, or Gemini)
-- Falls back to mock explanations in demo mode (`AI_PROVIDER=mock`)
-- Docker deployment may require `--network=host` or DNS configuration for external API access
+See `IMPLEMENTATION_CHECKLIST.md` for the full prioritized open issues list.
 
 ---
 

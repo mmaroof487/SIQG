@@ -509,18 +509,121 @@ if any(field in query.lower() for field in SENSITIVE_FIELDS):
 - **Output Modes:** Human-readable (with emojis) and JSON (for scripting)
 - **Error Messages:** Clear, actionable feedback
 
+
 ---
 
-## 📦 Project Structure (Phase 6 - Final)
+## 7️⃣ Security Hardening Pass (Post-Launch)
+
+### 7.1 Auth Registration Validation (`routers/v1/auth.py`)
+
+Pydantic `field_validator` rules on the `RegisterRequest` model:
+
+| Field | Rule |
+|-------|------|
+| `username` | 3–32 chars, `^[a-zA-Z0-9_-]+$`, whitespace stripped |
+| `email` | `^[^@\s]+@[^@\s]+\.[^@\s]+$`, max 254 chars, lowercased |
+| `password` | 8–128 chars, must contain ≥1 letter AND ≥1 digit, whitespace stripped |
+
+Errors returned as Pydantic v2 array format → frontend `parseErrorDetail()` maps to `field: message`.
+
+### 7.2 Login / Refresh Hardening
+
+- `is_active` check: disabled accounts receive HTTP 403 on both `/auth/login` and `/auth/refresh`
+- Role enum safety: `role.value` extracted from `User.role` (a `Role` enum) before `create_jwt()` to prevent `'Role.readonly'` string in JWT `sub` field
+- Token refresh grace period: `/auth/refresh` decodes with `verify_exp=False`, then checks `now <= exp + 300s`. Returns 401 if outside the 5-minute grace window
+- Re-reads `role` from DB on refresh: ensures revoked role changes take effect without requiring full logout
+
+### 7.3 AI Security Guards (`routers/v1/ai.py`)
+
+**Rate Limiter:**
+```python
+async def check_ai_rate_limit(user_id: str, redis: Redis):
+    bucket = int(time.time() // 60)
+    key = f"argus:ai_ratelimit:{user_id}:{bucket}"
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, 120)  # 2-minute TTL
+    if count > AI_RATE_LIMIT_PER_MINUTE:  # 20
+        raise HTTPException(429, "AI rate limit exceeded")
+```
+
+**Topic Enforcer:**
+```python
+SQL_DB_KEYWORDS = {
+    "select", "insert", "update", "delete", "table", "column", "query",
+    "database", "schema", "sql", "join", "where", "index", "view",
+    # ... 60+ keywords total
+}
+
+def enforce_sql_topic(text: str):
+    words = set(text.lower().split())
+    if len(text) > 2000:
+        raise HTTPException(400, "Input too long (max 2000 chars)")
+    if not words & SQL_DB_KEYWORDS:
+        raise HTTPException(400, "Off-topic: this interface handles SQL/database queries only")
+```
+
+Both guards applied to all 5 AI endpoints via shared dependency: `/nl-to-sql`, `/explain`, `/insights`, `/explain-anomaly`, `/schema-chat`.
+
+### 7.4 Multi-Database Workbench (`routers/v1/connections.py`)
+
+- `UserDatabase` model: stores `encrypted_connection_string` (AES-256-GCM), `user_id` FK, `is_active`, `last_tested_at`
+- Connection ownership: all CRUD operations filter by `WHERE user_id = current_user.id` — users cannot access others' connections
+- `POST /connections/{id}/test`: creates a temporary asyncpg connection, runs `SELECT 1`, returns success/failure without exposing error details
+- `GET /connections/{id}/schema`: introspects `information_schema.tables` and `information_schema.columns` on the external DB
+- Per-connection circuit breaker: Redis key `argus:circuit:{connection_id}`, same 3-state machine as primary pool
+- Cache invalidation: keys prefixed `argus:cache:{connection_id}:*`
+
+### 7.5 Frontend RBAC Guard (`frontend-ts/src/App.tsx`)
+
+```tsx
+const RequireAdmin: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const token = localStorage.getItem('access_token');
+  if (!token) return <Navigate to="/login" replace />;
+  const payload = JSON.parse(atob(token.split('.')[1]));
+  if (payload.role !== 'admin') return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+};
+
+// Usage:
+<Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
+```
+
+- Decodes JWT `role` from base64 payload — no server round-trip needed
+- Non-admin users hitting `/admin` route are redirected to `/dashboard`
+- Admin endpoints still enforce role server-side (defense-in-depth)
+
+### 7.6 Middleware Fix (`middleware/security/auth.py`)
+
+Fixed bare `except:` clause in API key Redis cache write:
+
+```python
+# Before (silent failure, bare except):
+try:
+    await redis.setex(cache_key, 3600, json.dumps(user_data))
+except:
+    pass
+
+# After (explicit exception type, logged):
+try:
+    await redis.setex(cache_key, 3600, json.dumps(user_data))
+except Exception as e:
+    logger.warning(f"API key cache write failed: {e}")
+```
+
+---
+
+## 📦 Project Structure (Final — Post Security Hardening)
 
 ```
 gateway/
   ├── routers/v1/
-  │   ├── auth.py              # JWT/API key auth + registration
+  │   ├── auth.py              # JWT/API key auth + validated registration + refresh grace
   │   ├── query.py             # Query execution + dry-run + sensitive field guards
-  │   ├── admin.py             # Admin-only endpoints
+  │   ├── connections.py       # Multi-DB workbench CRUD + schema explorer
+  │   ├── admin.py             # Admin-only endpoints (7 tabs)
   │   ├── metrics.py           # Live metrics + heatmap
-  │   └── ai.py                # NL→SQL + Explain (GROQ + MOCK fallback)
+  │   └── ai.py                # 5 AI endpoints (GROQ + MOCK) + rate limit + topic guard
   │
   ├── middleware/
   │   ├── security/            # Auth, brute force, IP filter, rate limit, RBAC, honeypot
@@ -528,39 +631,49 @@ gateway/
   │   ├── execution/           # Circuit breaker, executor, analyzer, complexity
   │   └── observability/       # Audit, metrics, webhooks, heatmap
   │
-  ├── models/                  # SQLAlchemy ORM models
+  ├── models/                  # SQLAlchemy ORM models (+ UserDatabase, ColumnEncryptionConfig)
   └── utils/                   # Helpers (DB, Redis, logging)
+
+frontend-ts/src/
+  ├── pages/
+  │   ├── LoginPage.tsx        # Auth + password strength + useNavigate
+  │   ├── RegisterPage.tsx     # Client-side validation mirrors backend
+  │   └── AdminPage.tsx        # Admin dashboard (admin role required)
+  ├── App.tsx                  # RequireAuth + RequireAdmin route guards
+  └── api.ts                   # Axios wrapper + token management
 
 sdk/
   ├── argus/
-  │   ├── __init__.py          # Exports Gateway class
-  │   ├── client.py            # Gateway client (156 lines)
-  │   └── cli.py               # CLI tool (270+ lines)
-  ├── setup.py                 # Package config for PyPI
-  └── README.md                # SDK documentation
+  │   ├── client.py            # Gateway client with HMAC signing
+  │   └── cli.py               # Typer CLI
+  └── setup.py
 
 tests/
   ├── unit/
-  │   ├── test_ai.py           # AI endpoint tests (GROQ + fallback)
+  │   ├── test_ai.py           # AI endpoint + rate limit + topic guard tests
+  │   ├── test_auth.py         # Registration validation + is_active + refresh grace
+  │   ├── test_connections.py  # Multi-DB workbench tests
   │   ├── test_sdk_client.py   # SDK client tests
-  │   └── ... (20+ other test files, 134 total)
+  │   └── ... (163 total)
   ├── integration/
-  │   └── test_full_pipeline.py # End-to-end test (all 6 phases)
+  │   └── test_full_pipeline.py
   └── load/
-      └── locustfile.py        # Load testing
+      └── locustfile.py
 ```
 
 ---
 
 ## 🔍 Test Coverage
 
-**Unit Tests:** 134 test cases across all components
+**Unit Tests:** 163 test cases across all components
 
-- Security: SQL injection, RBAC, rate limiting, brute force, honeypot
+- Security: SQL injection, RBAC, rate limiting (per-role + AI), brute force, honeypot
+- Auth: Registration validation, is_active enforcement, refresh grace window, role enum
 - Performance: Caching, fingerprinting, cost estimation, budget
-- Execution: Circuit breaker, retries, timeouts
+- Execution: Circuit breaker, retries, timeouts, multi-DB routing
 - Observability: Metrics, audit logging, webhooks
-- AI: NL→SQL (GROQ + mock), Explain, pattern matching, fallback
+- AI: NL→SQL (GROQ + mock), Explain, Insights, Schema Chat, Anomaly, rate limit guard, topic enforcement
+- Multi-DB: Connection CRUD, schema exploration, ownership enforcement
 
 **Integration Tests:** Full pipeline from request to response
 
@@ -573,4 +686,4 @@ tests/
 
 ---
 
-_Low-level architecture complete. All 6 phases production-hardened, fully async, resilient, and test-covered._
+_Low-level architecture complete. All 6 layers + Multi-DB Workbench + AI Security Guards + Auth Hardening — production-hardened, fully async, resilient, and test-covered._

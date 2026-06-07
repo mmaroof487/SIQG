@@ -1,6 +1,6 @@
 # Argus Testing Guide
 
-This guide explains how to test all 32 features of Argus across 6 tiers.
+This guide explains how to test all features of Argus including the 6 security/performance/AI layers, multi-DB workbench, AI rate limiting, auth hardening, and all 32 integration steps.
 
 ---
 
@@ -288,8 +288,9 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
   -d '{
     "username":"testuser",
     "email":"test@example.com",
-    "password":"SecurePass123!"
+    "password":"SecurePass1"
   }'
+# Note: password must be 8-128 chars, contain >=1 letter AND >=1 digit
 ```
 
 ### Get authentication token
@@ -298,7 +299,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
     "username":"testuser",
-    "password":"SecurePass123!"
+    "password":"SecurePass1"
   }' | jq -r '.access_token'
 ```
 
@@ -337,6 +338,80 @@ curl -X POST http://localhost:8000/api/v1/ai/explain \
   -d '{"query":"SELECT role, COUNT(*) FROM users GROUP BY role"}'
 ```
 
+### Test AI rate limit (20 req/min per user)
+```bash
+# Send 21 requests quickly — the 21st should return 429
+for i in $(seq 1 21); do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"question":"show all users"}'
+done
+# Last response should be: 429
+```
+
+### Test AI topic enforcement
+```bash
+# Off-topic input (no SQL/DB keywords) — should be rejected
+curl -X POST http://localhost:8000/api/v1/ai/nl-to-sql \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is the capital of France?"}'
+# Expected: 400 Bad Request — off-topic input rejected
+```
+
+### Register an external database connection
+```bash
+curl -X POST http://localhost:8000/api/v1/connections \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Analytics DB",
+    "db_type": "postgresql",
+    "connection_string": "postgresql://user:pass@db-host:5432/analytics"
+  }'
+```
+
+### Explore external DB schema
+```bash
+# Get connection ID from the register response above
+CONN_ID="<connection-id-from-above>"
+curl -X GET http://localhost:8000/api/v1/connections/$CONN_ID/schema \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Test invalid registration (validation)
+```bash
+# Weak password (no digit) — should be rejected
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"bob","email":"bob@example.com","password":"onlyletters"}'
+# Expected: 422 Unprocessable Entity — password must contain a digit
+
+# Invalid username (spaces) — should be rejected
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"bad user!","email":"bad@example.com","password":"Pass1"}'
+# Expected: 422 — username allows only [a-zA-Z0-9_-]
+```
+
+### Token refresh (5-minute grace window)
+```bash
+# An expired token within 5 minutes still works:
+curl -X POST http://localhost:8000/api/v1/auth/refresh \
+  -H "Authorization: Bearer $RECENTLY_EXPIRED_TOKEN"
+# Returns new token if expired < 5 minutes ago
+```
+
+### Schema Chat
+```bash
+curl -X POST http://localhost:8000/api/v1/ai/schema-chat \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What tables are available and what do they store?"}'
+```
+
 ### Check budget
 ```bash
 curl -X GET http://localhost:8000/api/v1/query/budget \
@@ -370,9 +445,9 @@ python -m pytest tests/ -v
 ```
 
 **Current status:**
-- 134 tests total
+- 163 tests total
 - 71%+ code coverage
-- All Tiers (1-6) included
+- All Tiers (1-6) + multi-DB workbench + AI guards + auth hardening included
 - Fully automated in CI/CD
 
 ---
