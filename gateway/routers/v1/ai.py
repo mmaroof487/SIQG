@@ -3,6 +3,10 @@
 Phase 6: Natural Language → SQL conversion and query explainer.
 - NL→SQL: Convert user questions to SQL using LLM
 - Explain: Generate plain English explanation of SQL queries
+
+Security guards applied to ALL AI endpoints:
+- AI rate limiting: max 20 requests/minute per user (hard cap, all roles)
+- Topic enforcement: only SQL/database-related inputs are processed
 """
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
@@ -21,15 +25,120 @@ router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
 logger = get_logger(__name__)
 
 
+# ============================================================================
+# AI Security Guards
+# ============================================================================
+
+# Hard cap: max AI requests per user per minute regardless of role
+_AI_RATE_LIMIT_PER_MINUTE = 20
+# Max length of any free-text input sent to LLM (characters)
+_AI_MAX_INPUT_LENGTH = 2000
+
+# Keywords that identify a question as DB/SQL related
+# A question must match at LEAST ONE of these to be allowed.
+_DB_TOPIC_KEYWORDS = {
+    # SQL keywords
+    "select", "insert", "update", "delete", "drop", "create", "alter",
+    "where", "join", "group by", "order by", "having", "limit", "offset",
+    "union", "subquery", "index", "constraint", "primary key", "foreign key",
+    "transaction", "commit", "rollback", "vacuum", "explain", "analyze",
+    "trigger", "function", "procedure", "view", "materialized",
+    # Database concepts
+    "table", "column", "row", "record", "schema", "database", "query",
+    "sql", "nosql", "postgres", "postgresql", "mysql", "sqlite",
+    "mongodb", "redis", "db", "relation", "data type", "datatype",
+    "null", "not null", "default", "unique", "varchar", "integer",
+    "boolean", "timestamp", "serial", "bigint", "text", "jsonb",
+    # Data/query concepts
+    "data", "dataset", "query", "result", "fetch", "retrieve", "record",
+    "aggregate", "count", "sum", "avg", "min", "max", "distinct",
+    "filter", "sort", "search", "find", "show", "list", "get",
+    "users", "orders", "products", "customers", "transactions",
+    # Anomaly / performance (for explain-anomaly endpoint)
+    "anomaly", "spike", "performance", "latency", "slow query", "cache",
+    "rate limit", "circuit breaker", "timeout", "connection",
+}
+
+
+async def _check_ai_rate_limit(request: Request, user_id: str) -> None:
+    """
+    Enforce a hard AI-specific rate limit of 20 requests/minute per user.
+    This is separate from and in addition to the general query rate limit.
+    Raises HTTP 429 if the limit is exceeded.
+    """
+    redis = request.app.state.redis
+    window_seconds = 60
+    current_bucket = int(time.time()) // window_seconds
+    bucket_key = f"argus:ai_ratelimit:{user_id}:{current_bucket}"
+
+    count = await redis.incr(bucket_key)
+    if count == 1:
+        # Set expiry to 2x window so boundary-edge counts expire cleanly
+        await redis.expire(bucket_key, window_seconds * 2)
+
+    if count > _AI_RATE_LIMIT_PER_MINUTE:
+        logger.warning(
+            f"AI rate limit exceeded: user={user_id} count={count}/{_AI_RATE_LIMIT_PER_MINUTE}"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"AI rate limit exceeded. Maximum {_AI_RATE_LIMIT_PER_MINUTE} AI requests "
+                f"per minute allowed. Please wait and try again."
+            ),
+        )
+
+
+def _enforce_db_topic(text: str, field_name: str = "input") -> None:
+    """
+    Reject inputs that are clearly not SQL/database related.
+    Checks for at least one DB-topic keyword in the lowercased input.
+    Raises HTTP 400 if the topic is off-domain.
+
+    Also enforces a maximum input length to prevent token-bombing attacks.
+    """
+    if not text or not isinstance(text, str):
+        raise HTTPException(
+            status_code=400,
+            detail=f"AI {field_name} must be a non-empty string.",
+        )
+
+    # Enforce input length cap
+    if len(text) > _AI_MAX_INPUT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"AI {field_name} is too long ({len(text)} chars). "
+                f"Maximum allowed: {_AI_MAX_INPUT_LENGTH} characters."
+            ),
+        )
+
+    # Check for at least one DB/SQL keyword
+    text_lower = text.lower()
+    if not any(keyword in text_lower for keyword in _DB_TOPIC_KEYWORDS):
+        logger.warning(
+            f"AI topic enforcement: off-topic {field_name} rejected: {text[:100]!r}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This AI interface only processes SQL and database-related requests. "
+                "Your input does not appear to be related to databases or queries. "
+                "Please ask about tables, columns, SQL queries, or database operations."
+            ),
+        )
+
+
 class NLRequest(BaseModel):
     """Request for natural language to SQL conversion."""
     question: str
     schema_hint: str = ""  # Optional: "table users(id, name, email)"
+    connection_id: Optional[str] = None
 
 
 class ExplainRequest(BaseModel):
     """Request for SQL query explanation."""
-    query: str
+    query: str = ""
 
 
 class NLResponse(BaseModel):
@@ -45,6 +154,18 @@ class ExplainResponse(BaseModel):
     """Response from explain endpoint."""
     query: str
     explanation: str
+
+
+class InsightsRequest(BaseModel):
+    """Request for AI insights on query results."""
+    query: str
+    rows: list
+    columns: list
+
+
+class InsightsResponse(BaseModel):
+    """Response from insights endpoint."""
+    insights: str
 
 
 class AnomalyExplanationRequest(BaseModel):
@@ -63,6 +184,19 @@ class AnomalyExplanationResponse(BaseModel):
     explanation: str
     recommended_action: Optional[str] = None
     severity: str = "medium"  # "low", "medium", "high", "critical"
+
+
+class SchemaChatRequest(BaseModel):
+    """Request for chatting about the database schema."""
+    question: str
+    connection_id: str
+    active_table: Optional[str] = None
+    chat_history: Optional[list] = []
+
+
+class SchemaChatResponse(BaseModel):
+    """Response from schema chat endpoint."""
+    answer: str
 
 
 # ============================================================================
@@ -97,8 +231,30 @@ RULES:
   - Include ORDER BY logic (e.g., "sorted by creation date")
   - Mention column aliases if used (e.g., "user_count")
 - Describe LIMITS:
-  - How many rows are returned (e.g., "returns up to 10 rows")
-- Do not include technical jargon without explanation."""
+  - Mention if the results are limited to a certain number of rows
+- DO NOT just read the SQL syntax back (e.g., don't say "It SELECTs column A FROM table B"). Tell me what the business outcome is."""
+
+
+SYSTEM_PROMPT_INSIGHTS = """You are a data analyst AI. Look at the provided SQL query and the resulting data, and provide 2-3 interesting insights.
+
+RULES:
+- Be concise (3-4 sentences max).
+- Highlight anomalies, trends, averages, or extremes.
+- Use formatting like bullet points or bold text for readability.
+- If the data is empty, say "No data returned to analyze."
+"""
+
+
+SYSTEM_PROMPT_SCHEMA_CHAT = """You are Argus Schema Assistant, an expert database architect and analyst.
+The user will ask you questions about their database schema, structure, tables, columns, relationships, or general SQL query writing regarding this schema.
+
+CRITICAL RULES:
+1. STRICTLY restrict your answers to the database schema, query writing, tables, and data structure.
+2. If the user asks ANY question unrelated to databases, schemas, or data analysis (e.g., general knowledge, coding outside of SQL, casual chat, harmful prompts), you MUST refuse to answer and state: "I can only assist with questions regarding the database schema and queries."
+3. Be concise and helpful. Format your answers using markdown. Use code blocks for SQL queries.
+4. Reference the provided schema context to ensure your answers are accurate to the user's specific database.
+"""
+
 
 SYSTEM_PROMPT_ANOMALY = """You are a database performance and security expert.
 Analyze the given anomaly and provide a brief, actionable explanation.
@@ -123,6 +279,46 @@ RULES:
 # AI Helper Functions
 # ============================================================================
 
+async def _fetch_schema_for_llm(connection_id: str, request: Request, user) -> str:
+    """Fetch database schema structure to inject into the LLM prompt."""
+    try:
+        if not connection_id or connection_id == "default":
+            from database.core import PrimarySession
+            from sqlalchemy import text
+            query = """
+            SELECT c.table_schema, c.table_name, c.column_name, c.data_type
+            FROM information_schema.columns c
+            WHERE c.table_schema = 'public'
+            ORDER BY c.table_name, c.ordinal_position;
+            """
+            async with PrimarySession() as session:
+                res = await session.execute(text(query))
+                rows = res.fetchall()
+                schema_dict = {}
+                for r in rows:
+                    t_name = f"{r.table_schema}.{r.table_name}"
+                    if t_name not in schema_dict:
+                        schema_dict[t_name] = []
+                    schema_dict[t_name].append(f"{r.column_name} {r.data_type}")
+                
+                parts = []
+                for t, cols in schema_dict.items():
+                    parts.append(f"Table {t} ({', '.join(cols)})")
+                return "\n".join(parts)
+        else:
+            from routers.v1.connections import get_connection_schema
+            schemas = await get_connection_schema(connection_id, request, user)
+            parts = []
+            for s in schemas:
+                sch_name = s.get("schema")
+                for t in s.get("tables", []):
+                    cols = [f"{c.get('name')} {c.get('type')}" for c in t.get("columns", [])]
+                    parts.append(f"Table {sch_name}.{t.get('name')} ({', '.join(cols)})")
+            return "\n".join(parts)
+    except Exception as e:
+        logger.warning(f"Could not fetch schema for LLM: {e}")
+        return ""
+
 async def call_llm_mock(system: str, user_message: str) -> str:
     """Mock LLM response (fallback for failures or development)."""
     logger.info("Using mock LLM response")
@@ -130,6 +326,12 @@ async def call_llm_mock(system: str, user_message: str) -> str:
     # Determine if this is an explanation request or SQL generation
     is_explain = "explain" in system.lower()
     is_anomaly = "anomaly" in system.lower()
+    is_insights = "analyst" in system.lower() or "insight" in system.lower()
+
+    if is_insights:
+        if "rows: []" in user_message.lower():
+            return "No data returned to analyze."
+        return "Based on the results:\n- Found data points corresponding to your query.\n- No unusual anomalies detected.\n- The dataset appears consistent with normal operational parameters."
 
     if is_anomaly:
         # Generate anomaly explanation based on anomaly context
@@ -269,6 +471,10 @@ async def call_llm_mock(system: str, user_message: str) -> str:
 
     if "password" in question_lower or "sensitive" in question_lower:
         return "ERROR: Cannot query sensitive columns like passwords"
+    elif "delete" in question_lower or "remove" in question_lower or "drop" in question_lower:
+        if "year" in question_lower:
+            return "DELETE FROM users WHERE last_login < NOW() - INTERVAL '1 year'"
+        return "DELETE FROM users WHERE is_active = false"
     # GROUP BY must come BEFORE COUNT (group by words often include "count")
     elif "group by" in question_lower or ("group" in question_lower and "role" in question_lower):
         return "SELECT role, COUNT(*) as user_count FROM users GROUP BY role ORDER BY COUNT(*) DESC"
@@ -543,12 +749,23 @@ async def nl_to_sql(
     """
     trace_id = getattr(request.state, "trace_id", "unknown")
 
+    # === AI SECURITY GUARDS ===
+    user_id = str(getattr(request.state, "user_id", user.get("sub", "unknown")))
+    await _check_ai_rate_limit(request, user_id)
+    _enforce_db_topic(body.question, field_name="question")
+
     try:
         logger.info(f"[{trace_id}] NL→SQL: {body.question[:100]}")
 
         # GUARDRAIL 1: Check for semantic patterns BEFORE calling LLM
         # This prevents LLM from making semantic mistakes (e.g., "top 5" → LIMIT 50)
         question_lower = body.question.lower()
+        
+        # Inject schema if not provided
+        if not body.schema_hint:
+            body.schema_hint = await _fetch_schema_for_llm(body.connection_id, request, user)
+            if body.schema_hint:
+                logger.info(f"[{trace_id}] Injected schema hint for LLM ({len(body.schema_hint)} chars)")
 
         # Check for explicit LIMIT patterns
         if "top" in question_lower and "5" in question_lower:
@@ -566,13 +783,13 @@ async def nl_to_sql(
                 # Call LLM for other "top" queries
                 prompt = f"Question: {body.question}"
                 if body.schema_hint:
-                    prompt += f"\nDatabase schema: {body.schema_hint}"
+                    prompt += f"\nDatabase schema:\n{body.schema_hint}"
                 generated_sql = await call_llm(SYSTEM_PROMPT_NL_TO_SQL, prompt)
         else:
             # Call LLM for everything else
             prompt = f"Question: {body.question}"
             if body.schema_hint:
-                prompt += f"\nDatabase schema: {body.schema_hint}"
+                prompt += f"\nDatabase schema:\n{body.schema_hint}"
             generated_sql = await call_llm(SYSTEM_PROMPT_NL_TO_SQL, prompt)
 
         logger.debug(f"[{trace_id}] Generated SQL: {generated_sql}")
@@ -591,27 +808,10 @@ async def nl_to_sql(
             generated_sql = generated_sql.rstrip(";") + " LIMIT 1000"
             logger.debug(f"[{trace_id}] Injected LIMIT 1000 into query: {generated_sql}")
 
-        # Run the generated SQL through the full gateway pipeline
-        # Create a QueryRequest and execute it
-        query_req = QueryRequest(query=generated_sql, dry_run=False)
-
-        # Call execute_query directly (internal function call, not HTTP)
-        # This runs through all 4 layers of security, performance, execution, observability
-        logger.debug(f"[{trace_id}] Executing generated SQL: {generated_sql}")
-        result = await execute_query(request, query_req, user)
-
-        logger.info(f"[{trace_id}] NL→SQL execution successful: {result.rows_count} rows")
-
         return NLResponse(
             original_question=body.question,
             generated_sql=generated_sql,
-            result={
-                "rows": result.rows,
-                "rows_count": result.rows_count,
-                "latency_ms": result.latency_ms,
-                "cached": result.cached,
-                "cost": result.cost,
-            },
+            result=None,
             status="success",
         )
 
@@ -642,6 +842,7 @@ async def nl_to_sql(
 @router.post("/explain", response_model=ExplainResponse)
 async def explain_query(
     body: ExplainRequest,
+    request: Request,
     user=Depends(get_current_user),
 ) -> ExplainResponse:
     """
@@ -657,6 +858,11 @@ async def explain_query(
         - query: The input SQL query
         - explanation: Plain English explanation
     """
+    # === AI SECURITY GUARDS ===
+    user_id = str(getattr(request.state, "user_id", user.get("sub", "unknown")))
+    await _check_ai_rate_limit(request, user_id)
+    _enforce_db_topic(body.query, field_name="query")
+
     try:
         logger.info(f"Explain: {body.query[:100]}")
 
@@ -674,9 +880,43 @@ async def explain_query(
         raise HTTPException(status_code=500, detail=f"Explanation failed: {str(e)}")
 
 
+@router.post("/insights", response_model=InsightsResponse)
+async def analyze_insights(
+    body: InsightsRequest,
+    request: Request,
+    user=Depends(get_current_user),
+) -> InsightsResponse:
+    """
+    Generate AI insights based on query execution results.
+    """
+    # === AI SECURITY GUARDS ===
+    user_id = str(getattr(request.state, "user_id", user.get("sub", "unknown")))
+    await _check_ai_rate_limit(request, user_id)
+    # Insights endpoint: enforce topic on the SQL query field
+    _enforce_db_topic(body.query, field_name="query")
+
+    try:
+        logger.info(f"Insights analysis for query: {body.query[:100]}")
+        
+        # Limit rows to avoid token explosion
+        max_rows = body.rows[:20]
+        context = f"Query: {body.query}\nColumns: {body.columns}\nRows: {max_rows}"
+        
+        # Call LLM
+        insights = await call_llm(SYSTEM_PROMPT_INSIGHTS, context)
+        
+        return InsightsResponse(
+            insights=insights,
+        )
+    except Exception as e:
+        logger.error(f"Insights error: {e}")
+        raise HTTPException(status_code=500, detail=f"Insights analysis failed: {str(e)}")
+
+
 @router.post("/explain-anomaly", response_model=AnomalyExplanationResponse)
 async def explain_anomaly(
     body: AnomalyExplanationRequest,
+    request: Request,
     user=Depends(get_current_user),
 ) -> AnomalyExplanationResponse:
     """
@@ -701,7 +941,13 @@ async def explain_anomaly(
         - recommended_action: Suggested next steps
         - severity: Risk level (low/medium/high/critical)
     """
-    trace_id = getattr(request, "state.trace_id", "unknown") if hasattr(__import__('threading'), 'current_thread') else "unknown"
+    trace_id = getattr(request.state, "trace_id", "unknown")
+
+    # === AI SECURITY GUARDS ===
+    user_id = str(getattr(request.state, "user_id", user.get("sub", "unknown")))
+    await _check_ai_rate_limit(request, user_id)
+    # For anomaly endpoint: validate anomaly_type is DB/system related
+    _enforce_db_topic(body.anomaly_type, field_name="anomaly_type")
 
     try:
         logger.info(f"[{trace_id}] Anomaly explanation: {body.anomaly_type}")
@@ -747,9 +993,59 @@ Detected: {body.detected_value or "unknown"}
         logger.warning(f"[{trace_id}] Anomaly explanation HTTP error: {e.detail}")
         raise
     except Exception as e:
-        error_msg = str(e)
-        logger.error(f"[{trace_id}] Anomaly explanation error: {error_msg}")
-        raise HTTPException(status_code=500, detail=f"Anomaly explanation failed: {error_msg[:200]}")
+        logger.error(f"[{trace_id}] Exception in explain_anomaly: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate anomaly explanation")
+
+
+@router.post("/schema-chat", response_model=SchemaChatResponse)
+async def schema_chat(body: SchemaChatRequest, request: Request, user: dict = Depends(get_current_user)):
+    """Chat about the database schema."""
+    trace_id = getattr(request.state, "trace_id", "unknown-trace")
+    logger.info(f"[{trace_id}] Received schema chat request")
+
+    # === AI SECURITY GUARDS ===
+    user_id = str(getattr(request.state, "user_id", user.get("sub", "unknown")))
+    await _check_ai_rate_limit(request, user_id)
+    _enforce_db_topic(body.question, field_name="question")
+
+    try:
+        # Fetch schema
+        schema_context = await _fetch_schema_for_llm(body.connection_id, request, user)
+        
+        system_instructions = SYSTEM_PROMPT_SCHEMA_CHAT + f"\n\nDATABASE SCHEMA CONTEXT:\n{schema_context}"
+        if body.active_table:
+            system_instructions += f"\n\nTHE USER IS CURRENTLY VIEWING THIS TABLE: {body.active_table}"
+
+        # Stringify chat history for standard AI call helpers
+        history_text = ""
+        if body.chat_history:
+            history_text = "PREVIOUS CONVERSATION HISTORY:\n"
+            for msg in body.chat_history:
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                history_text += f"{role}: {msg.get('content', '')}\n\n"
+        
+        user_message = f"{history_text}USER's CURRENT QUESTION:\n{body.question}"
+
+        # Route to active provider
+        if settings.ai_provider == "openai":
+            answer = await call_openai(system_instructions, user_message)
+        elif settings.ai_provider == "gemini":
+            answer = await call_gemini(system_instructions, user_message)
+        elif settings.ai_provider == "groq":
+            answer = await call_groq(system_instructions, user_message)
+        else:
+            answer = await call_mock_ai(system_instructions, user_message)
+            
+        if answer.startswith("ERROR:"):
+            raise HTTPException(status_code=500, detail=answer)
+
+        return SchemaChatResponse(answer=answer)
+                
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"[{trace_id}] Schema chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to process schema chat request")
 
 
 def _determine_anomaly_severity(body: AnomalyExplanationRequest) -> str:
