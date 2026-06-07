@@ -9,12 +9,24 @@
   --color-on-surface: #E2E8F0;
   --color-on-surface-variant: #94A3B8;
   --color-primary-neon: #00FF9D;
-  --color-primary-container: #003320;
+  --color-primary-container: #00fc9b;
   --color-error: #FF716C;
 }
 
 @layer base {
   body {
     @apply bg-surface-low text-on-surface font-sans;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    /* IE and Edge */
+    -ms-overflow-style: none;
+    /* Firefox */
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { api } from "../utils/api";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Database, Link2 } from "lucide-react";
 
 interface LatencyPoint {
 	time: string;
@@ -13,6 +13,7 @@ interface LatencyPoint {
 export default function MetricsDashboard() {
 	const [metrics, setMetrics] = useState<any>(null);
 	const [latencyData, setLatencyData] = useState<LatencyPoint[]>([]);
+	const [connections, setConnections] = useState<any[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");
 	const [anomalyExplanation, setAnomalyExplanation] = useState<string | null>(null);
@@ -49,6 +50,13 @@ export default function MetricsDashboard() {
 			setError("Failed to fetch metrics");
 		} finally {
 			setLoading(false);
+		}
+
+		try {
+			const connRes = await api.getConnections();
+			setConnections(connRes.data.filter((c: any) => c.is_active));
+		} catch (e) {
+			// Ignore conn error to keep metrics updating
 		}
 	};
 
@@ -92,7 +100,13 @@ export default function MetricsDashboard() {
 	return (
 		<div className="space-y-6">
 			{/* Key Metrics */}
-			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+			<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5 transition-all hover:ring-primary-neon/20 hover:shadow-[0_0_20px_rgba(0,255,157,0.05)]">
+					<div className="text-sm text-on-surface-variant mb-2 tracking-wide font-medium uppercase">Active Connections</div>
+					<div className="text-4xl font-bold text-primary-neon drop-shadow-[0_0_8px_rgba(0,255,157,0.4)]">
+						{connections.length}
+					</div>
+				</div>
 				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5 transition-all hover:ring-primary-neon/20 hover:shadow-[0_0_20px_rgba(0,255,157,0.05)]">
 					<div className="text-sm text-on-surface-variant mb-2 tracking-wide font-medium uppercase">Cache Hit Ratio</div>
 					<div className="text-4xl font-bold text-primary-neon drop-shadow-[0_0_8px_rgba(0,255,157,0.4)]">
@@ -182,33 +196,70 @@ export default function MetricsDashboard() {
 					)}
 				</div>
 
-				{/* Top Tables */}
-				{metrics.top_tables && metrics.top_tables.length > 0 && (
-					<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5">
+				{/* Right Column: Active Connections & Top Tables */}
+				<div className="flex flex-col gap-6 lg:col-span-1">
+					{/* Active Connections List Widget */}
+					<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5 flex-1 flex flex-col min-h-[300px]">
 						<h3 className="text-lg font-bold text-on-surface mb-6 flex items-center gap-2">
 							<span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
-							Top Data Sectors
+							Active Connections
 						</h3>
-						<div className="space-y-3">
-							{metrics.top_tables.map((table: any, idx: number) => (
-								<div key={idx} className="flex flex-col gap-1 p-3 bg-surface-high/50 hover:bg-surface-high rounded-xl border border-surface-high transition-colors">
-									<div className="flex items-center justify-between">
-										<span className="text-on-surface font-semibold">{table.name}</span>
-										<span className="text-primary-neon font-mono font-bold">{table.access_count}</span>
+						<div className="space-y-3 overflow-y-auto max-h-[250px] pr-2 scrollbar-hide flex-1">
+							{connections.length > 0 ? (
+								connections.map((conn: any) => (
+									<div key={conn.id} className="flex items-center justify-between p-3 bg-surface-high/50 hover:bg-surface-high rounded-xl border border-surface-high transition-colors">
+										<div className="flex items-center gap-3">
+											<div className="w-8 h-8 rounded-full bg-primary-neon/10 border border-primary-neon/20 flex items-center justify-center text-primary-neon">
+												<Database className="w-4 h-4" />
+											</div>
+											<div>
+												<div className="text-on-surface font-semibold text-sm">{conn.display_name}</div>
+												<div className="text-xs font-mono text-on-surface-variant flex items-center gap-1"><Link2 className="w-3 h-3" /> {conn.db_type}</div>
+											</div>
+										</div>
+										<div className="flex items-center gap-2">
+											<span className="relative flex h-2 w-2">
+												<span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-neon opacity-75"></span>
+												<span className="relative inline-flex rounded-full h-2 w-2 bg-primary-neon shadow-[0_0_10px_rgba(0,255,157,1)]"></span>
+											</span>
+											<span className="text-xs font-bold text-primary-neon uppercase tracking-wider">Live</span>
+										</div>
 									</div>
-									<div className="w-full bg-surface rounded-full h-1.5 overflow-hidden">
-										<div className="bg-gradient-to-r from-primary-container to-primary-neon h-1.5 rounded-full" style={{ width: `${Math.min((table.access_count / (metrics.top_tables[0]?.access_count || 1)) * 100, 100)}%`}}></div>
-									</div>
-								</div>
-							))}
+								))
+							) : (
+								<div className="text-center py-8 text-on-surface-variant text-sm">No active connections found.</div>
+							)}
 						</div>
 					</div>
-				)}
+
+					{/* Top Tables */}
+					{metrics.top_tables && metrics.top_tables.length > 0 && (
+						<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5">
+							<h3 className="text-lg font-bold text-on-surface mb-6 flex items-center gap-2">
+								<span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
+								Top Data Sectors
+							</h3>
+							<div className="space-y-3">
+								{metrics.top_tables.map((table: any, idx: number) => (
+									<div key={idx} className="flex flex-col gap-1 p-3 bg-surface-high/50 hover:bg-surface-high rounded-xl border border-surface-high transition-colors">
+										<div className="flex items-center justify-between">
+											<span className="text-on-surface font-semibold">{table.name}</span>
+											<span className="text-primary-neon font-mono font-bold">{table.access_count}</span>
+										</div>
+										<div className="w-full bg-surface rounded-full h-1.5 overflow-hidden">
+											<div className="bg-gradient-to-r from-primary-container to-primary-neon h-1.5 rounded-full" style={{ width: `${Math.min((table.access_count / (metrics.top_tables[0]?.access_count || 1)) * 100, 100)}%`}}></div>
+										</div>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+				</div>
 			</div>
 			
 			{/* Request Distribution */}
 			{metrics.request_distribution && (
-				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5">
+				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5 mt-6">
 					<h3 className="text-lg font-bold text-on-surface mb-6 flex items-center gap-2">
 						<span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
 						Traffic Distribution Protocol

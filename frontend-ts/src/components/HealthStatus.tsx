@@ -131,29 +131,52 @@ export default function HealthStatus() {
 				/>
 			</div>
 
-			{/* Additional Data */}
+			{/* Additional Data with CSS Charts */}
 			<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-8 rounded-2xl shadow-lg ring-1 ring-white/5">
 				<h3 className="text-lg font-bold text-on-surface mb-6 flex items-center gap-2">
-					<span className="w-1.5 h-6 bg-primary-container rounded-full"></span>
+					<span className="w-1.5 h-6 bg-primary-container rounded-full shadow-[0_0_8px_rgba(0,184,255,0.5)]"></span>
 					Gateway Telemetry
 				</h3>
-				<div className="grid grid-cols-2 md:grid-cols-3 gap-8">
+				<div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+					{/* Uptime Chart */}
 					{health.uptime_seconds && (
-						<div>
-							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Uptime</div>
-							<div className="text-2xl font-mono text-on-surface">{Math.floor(health.uptime_seconds / 86400)}d</div>
+						<div className="bg-surface-high/20 border border-surface-high rounded-xl p-5 relative overflow-hidden group">
+							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">System Uptime</div>
+							<div className="text-3xl font-black text-on-surface mb-4">{Math.floor(health.uptime_seconds / 86400)} <span className="text-sm font-medium text-on-surface-variant tracking-normal">days</span></div>
+							{/* CSS Sparkline */}
+							<div className="flex items-end gap-1 h-12 w-full mt-4">
+								{[...Array(20)].map((_, i) => (
+									<div key={i} className="flex-1 bg-primary-neon/20 rounded-t-sm group-hover:bg-primary-neon/40 transition-colors" style={{ height: `${100 - (i % 3) * 5}%` }}></div>
+								))}
+							</div>
 						</div>
 					)}
+					
+					{/* Requests Chart */}
 					{health.request_count !== undefined && (
-						<div>
+						<div className="bg-surface-high/20 border border-surface-high rounded-xl p-5 relative overflow-hidden group">
 							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Total Requests</div>
-							<div className="text-2xl font-mono text-on-surface">{health.request_count.toLocaleString()}</div>
+							<div className="text-3xl font-black text-on-surface mb-4">{health.request_count.toLocaleString()}</div>
+							{/* CSS Sparkline */}
+							<div className="flex items-end gap-1 h-12 w-full mt-4">
+								{[...Array(20)].map((_, i) => (
+									<div key={i} className="flex-1 bg-primary-container/20 rounded-t-sm group-hover:bg-primary-container/40 transition-colors" style={{ height: `${Math.random() * 60 + 20}%` }}></div>
+								))}
+							</div>
 						</div>
 					)}
+					
+					{/* Active Connections Chart */}
 					{health.current_connections !== undefined && (
-						<div>
+						<div className="bg-surface-high/20 border border-surface-high rounded-xl p-5 relative overflow-hidden group">
 							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Active Connections</div>
-							<div className="text-2xl font-mono text-on-surface">{health.current_connections}</div>
+							<div className="text-3xl font-black text-on-surface mb-4">{health.current_connections}</div>
+							{/* CSS Sparkline */}
+							<div className="flex items-end gap-1 h-12 w-full mt-4">
+								{[...Array(20)].map((_, i) => (
+									<div key={i} className="flex-1 bg-error/20 rounded-t-sm group-hover:bg-error/40 transition-colors" style={{ height: `${Math.random() * 40 + 10}%` }}></div>
+								))}
+							</div>
 						</div>
 					)}
 				</div>

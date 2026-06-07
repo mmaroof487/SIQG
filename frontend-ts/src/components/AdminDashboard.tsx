@@ -15,11 +15,13 @@ export default function AdminDashboard() {
 
   // Filters for Audit Log
   const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [filterUser, setFilterUser] = useState<string>('');
+  const [filterUser] = useState<string>('');
 
   // Phase C: Advanced Policies & Compliance Export States
   const [rbacPolicies, setRbacPolicies] = useState<any[]>([]);
   const [compliancePeriod, setCompliancePeriod] = useState('30d');
+
+  const [fetchError, setFetchError] = useState("");
 
   useEffect(() => {
     fetchData();
@@ -27,6 +29,7 @@ export default function AdminDashboard() {
 
   const fetchData = async () => {
     setLoading(true);
+    setFetchError("");
     try {
       if (activeTab === 'audit') {
         const res = await apiClient.get('/admin/audit');
@@ -47,8 +50,13 @@ export default function AdminDashboard() {
         const res = await apiClient.get('/admin/rbac-policies');
         setRbacPolicies(Array.isArray(res.data) ? res.data : []);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Failed to fetch data for ${activeTab}:`, err);
+      if (err.response?.status === 403) {
+        setFetchError("You do not have administrative privileges to view this section. If your role was recently updated, please log out and log back in to refresh your access token.");
+      } else {
+        setFetchError("An error occurred while fetching data.");
+      }
     }
     setLoading(false);
   };
@@ -160,69 +168,97 @@ export default function AdminDashboard() {
       <div className="bg-surface/60 backdrop-blur-xl border border-surface-high rounded-2xl shadow-lg ring-1 ring-white/5 overflow-hidden">
         {loading && <div className="h-1 bg-primary-neon/20 overflow-hidden"><div className="h-full bg-primary-neon w-1/3 animate-pulse"></div></div>}
         
-        {/* Audit Logs */}
-        {activeTab === 'audit' && (
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-on-surface flex items-center gap-2">
-                <span className="w-1.5 h-6 bg-primary-neon rounded-full"></span>
-                Security Event Ledger
-              </h2>
+        {fetchError && (
+          <div className="m-6 p-4 bg-error/10 border border-error/30 text-error rounded-xl flex items-center gap-3">
+            <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm font-medium">{fetchError}</span>
+          </div>
+        )}
+
+        {/* Audit Logs (Security Center) */}
+        {!fetchError && activeTab === 'audit' && (
+          <div className="p-6 space-y-6">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h2 className="text-xl font-bold text-on-surface flex items-center gap-2">
+                  <span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
+                  Security Overview
+                </h2>
+                <p className="text-sm text-on-surface-variant mt-1">Argus has automatically prevented dangerous actions and policy violations today.</p>
+              </div>
               <div className="flex items-center gap-4 bg-surface-high/50 px-4 py-2 rounded-xl border border-surface-high text-sm">
                 <Filter className="w-4 h-4 text-primary-neon" />
                 <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="bg-transparent text-on-surface outline-none cursor-pointer">
-                  <option value="all">All Statuses</option>
-                  <option value="success">Success</option>
-                  <option value="error">Error</option>
+                  <option value="all">All Events</option>
+                  <option value="error">Blocked Actions</option>
+                  <option value="success">Allowed Actions</option>
                 </select>
-                <div className="w-px h-4 bg-surface-high ml-2 mr-2"></div>
-                <input 
-                  type="text" 
-                  value={filterUser} 
-                  onChange={e => setFilterUser(e.target.value)} 
-                  placeholder="Filter by User ID"
-                  className="bg-transparent text-on-surface outline-none w-32 placeholder-on-surface-variant/50" 
-                />
               </div>
             </div>
-            <div className="overflow-x-auto rounded-xl border border-surface-high">
-              <table className="w-full text-left">
-                <thead className="bg-surface-high/50 border-b border-surface-high">
-                  <tr>
-                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Trace ID</th>
-                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">User</th>
-                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Query Type</th>
-                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Status</th>
-                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Latency</th>
-                    <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Cached</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-high/50 bg-surface/50">
-                  {filteredLogs.map((log: any) => (
-                    <tr key={log.trace_id} className="hover:bg-surface-high/30 transition-colors">
-                      <td className="p-4 font-mono text-xs text-on-surface/80">{log.trace_id?.substring(0, 12)}...</td>
-                      <td className="p-4 text-on-surface text-sm font-medium">{log.user_id}</td>
-                      <td className="p-4"><span className="px-2 py-1 bg-surface-high rounded text-xs font-mono text-primary-container">{log.query_type}</span></td>
-                      <td className="p-4">
-                        <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${log.status === 'success' ? 'bg-primary-neon/10 text-primary-neon border border-primary-neon/20' : 'bg-error/10 text-error border border-error/20'}`}>
-                          {log.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-sm font-mono text-on-surface">{Number(log.latency_ms || 0).toFixed(2)}ms</td>
-                      <td className="p-4">{log.cached ? <CheckCircle className="w-4 h-4 text-primary-neon" /> : <span className="w-4 h-4 text-on-surface-variant block">-</span>}</td>
+
+            {/* Narrative Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredLogs.filter(l => l.status === 'error').slice(0, 2).map((log: any, idx) => (
+                <div key={`story-${idx}`} className="bg-error/5 border border-error/20 p-5 rounded-xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-error/10 rounded-full blur-3xl -mr-16 -mt-16"></div>
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-error/20 rounded-xl">
+                      <ShieldAlert className="w-6 h-6 text-error" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-on-surface text-lg">Blocked Dangerous Query</h3>
+                      <p className="text-sm text-on-surface-variant mt-1">
+                        User <span className="font-mono text-error font-bold">{log.user_id}</span> attempted an unauthorized <span className="uppercase text-xs font-bold tracking-wider">{log.query_type}</span> operation. Argus intercepted and dropped the request.
+                      </p>
+                      <div className="mt-3 flex items-center gap-4 text-xs font-mono text-on-surface-variant">
+                        <span>Trace: {log.trace_id?.substring(0,8)}</span>
+                        <span>Time: {new Date().toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 border border-surface-high rounded-xl overflow-hidden">
+              <div className="bg-surface-high/50 px-4 py-3 border-b border-surface-high flex justify-between items-center">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-on-surface-variant">Full Event Ledger</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-surface/30 border-b border-surface-high">
+                    <tr>
+                      <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Trace ID</th>
+                      <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">User</th>
+                      <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Action</th>
+                      <th className="p-4 text-xs font-bold text-on-surface-variant uppercase tracking-wider">Outcome</th>
                     </tr>
-                  ))}
-                  {filteredLogs.length === 0 && (
-                    <tr><td colSpan={6} className="text-center py-8 text-on-surface-variant font-mono uppercase text-sm">No audit logs found matching criteria</td></tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-surface-high/50 bg-surface/50">
+                    {filteredLogs.map((log: any) => (
+                      <tr key={log.trace_id} className="hover:bg-surface-high/30 transition-colors">
+                        <td className="p-4 font-mono text-xs text-on-surface/80">{log.trace_id?.substring(0, 12)}...</td>
+                        <td className="p-4 text-on-surface text-sm font-medium">{log.user_id}</td>
+                        <td className="p-4"><span className="px-2 py-1 bg-surface-high rounded text-xs font-mono text-primary-container">{log.query_type}</span></td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${log.status === 'success' ? 'bg-primary-neon/10 text-primary-neon border border-primary-neon/20' : 'bg-error/10 text-error border border-error/20'}`}>
+                            {log.status === 'success' ? 'Allowed' : 'Blocked'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredLogs.length === 0 && (
+                      <tr><td colSpan={4} className="text-center py-8 text-on-surface-variant font-mono uppercase text-sm">No events found matching criteria</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
 
         {/* Slow Queries */}
-        {activeTab === 'slow' && (
+        {!fetchError && activeTab === 'slow' && (
           <div className="p-6">
             <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
               <span className="w-1.5 h-6 bg-error rounded-full shadow-[0_0_8px_#ff716c]"></span>
@@ -269,7 +305,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Budget */}
-        {activeTab === 'budget' && (
+        {!fetchError && activeTab === 'budget' && (
           <div className="p-6">
             <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
               <span className="w-1.5 h-6 bg-primary-container rounded-full"></span>
@@ -297,7 +333,7 @@ export default function AdminDashboard() {
         )}
 
         {/* IP Rules */}
-        {activeTab === 'ip_rules' && (
+        {!fetchError && activeTab === 'ip_rules' && (
           <div className="p-6">
             <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
               <span className="w-1.5 h-6 bg-error rounded-full shadow-[0_0_8px_#ff716c]"></span>
@@ -316,7 +352,7 @@ export default function AdminDashboard() {
         )}
 
         {/* User Management */}
-        {activeTab === 'users' && (
+        {!fetchError && activeTab === 'users' && (
           <div className="p-6">
             <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
               <span className="w-1.5 h-6 bg-primary-container rounded-full"></span>
@@ -363,7 +399,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Whitelist */}
-        {activeTab === 'whitelist' && (
+        {!fetchError && activeTab === 'whitelist' && (
           <div className="p-6">
             <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
               <span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
@@ -391,7 +427,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Security Policies Tab */}
-        {activeTab === 'policies' && (
+        {!fetchError && activeTab === 'policies' && (
           <div className="p-6">
             <h2 className="text-xl font-bold text-on-surface mb-6 flex items-center gap-2">
               <span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
@@ -442,7 +478,7 @@ export default function AdminDashboard() {
         )}
 
         {/* Compliance Export Tab */}
-        {activeTab === 'compliance' && (
+        {!fetchError && activeTab === 'compliance' && (
           <div className="p-6 space-y-6">
             <h2 className="text-xl font-bold text-on-surface flex items-center gap-2">
               <span className="w-1.5 h-6 bg-primary-neon rounded-full shadow-[0_0_8px_#00FF9D]"></span>
