@@ -28,6 +28,9 @@ async def write_audit_log(
     anomaly_flag: bool,
     error_message: str = None,
     connection_id: str = None,
+    query_preview: str = None,
+    rows_returned: int = None,
+    cost: float = None,
 ):
     """Fire-and-forget audit log insertion with exponential backoff retry.
 
@@ -54,6 +57,9 @@ async def write_audit_log(
                         slow=slow,
                         anomaly_flag=anomaly_flag,
                         error_message=error_message,
+                        query_preview=query_preview,
+                        rows_returned=rows_returned,
+                        cost=cost,
                     )
                     db.add(log)
                     await db.commit()
@@ -84,18 +90,21 @@ async def write_audit_log(
 
 async def get_audit_logs(
     user_id: Optional[str] = None,
-    limit: int = 100,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list:
     """
     Retrieve audit logs using SQLAlchemy ORM (safe from SQL injection).
     Used for query history; admins can see all, users only their own.
     """
     safe_limit = max(1, min(limit, 500))
+    safe_offset = max(0, offset)
     try:
         async with PrimarySession() as session:
             stmt = (
                 select(AuditLog)
                 .order_by(AuditLog.created_at.desc())
+                .offset(safe_offset)
                 .limit(safe_limit)
             )
             if user_id:
@@ -116,6 +125,9 @@ async def get_audit_logs(
                     "slow": r.slow,
                     "anomaly_flag": r.anomaly_flag,
                     "error_message": r.error_message,
+                    "query_preview": r.query_preview,
+                    "rows_returned": r.rows_returned,
+                    "cost": r.cost,
                     "created_at": r.created_at.isoformat() if r.created_at else None,
                 }
                 for r in rows

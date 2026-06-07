@@ -22,6 +22,9 @@ class AuditLog(Base):
     slow = Column(Boolean, default=False, nullable=False, index=True)
     anomaly_flag = Column(Boolean, default=False, nullable=False, index=True)
     error_message = Column(Text, nullable=True)
+    query_preview = Column(String(500), nullable=True)
+    rows_returned = Column(Integer, nullable=True)
+    cost = Column(Float, nullable=True)
     execution_plan = Column(JSON, nullable=True)  # EXPLAIN ANALYZE output
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

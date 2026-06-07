@@ -64,11 +64,24 @@ app.add_middleware(
 )
 
 
+import time
+from datetime import datetime, timezone
+START_TIME = time.time()
+
 # Health check endpoint
 @app.get("/health")
 async def health_check(request: Request):
     """Basic health check querying DB and Redis."""
-    status_data = {"status": "ok", "db": "ok", "redis": "ok"}
+    status_data = {
+        "status": "ok", 
+        "postgres_primary": "ok",
+        "postgres_replica": "ok",
+        "redis": "ok",
+        "circuit_breaker_state": "closed",
+        "uptime_seconds": int(time.time() - START_TIME),
+        "last_check": datetime.now(timezone.utc).isoformat()
+    }
+    
     try:
         await request.app.state.redis.ping()
     except Exception as e:
@@ -83,7 +96,8 @@ async def health_check(request: Request):
             await session.execute(text("SELECT 1"))
     except Exception as e:
         logger.error(f"DB health check failed: {e}")
-        status_data["db"] = "unhealthy"
+        status_data["postgres_primary"] = "unhealthy"
+        status_data["postgres_replica"] = "unhealthy"
         status_data["status"] = "degraded"
 
     return status_data

@@ -26,6 +26,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select, delete
+from sqlalchemy.orm import selectinload
 
 from middleware.security.auth import get_current_user
 from middleware.security.encryption import encrypt_value, decrypt_value
@@ -89,6 +90,7 @@ class ColumnSchema(BaseModel):
     type: str
     pk: bool
     nullable: bool
+    fk: Optional[str] = None
 
 
 class TableSchema(BaseModel):
@@ -149,7 +151,9 @@ async def _get_own_connection(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid connection_id format")
 
-    stmt = select(UserDatabase).where(
+    stmt = select(UserDatabase).options(
+        selectinload(UserDatabase.column_encryption_configs)
+    ).where(
         UserDatabase.id == conn_uuid,
         UserDatabase.user_id == user_uuid,
     )
@@ -178,6 +182,16 @@ async def register_connection(
 
     user_id = request.state.user_id
 
+    # Test connection before allowing creation
+    logger.info(f"Testing new connection string during registration: {payload.conn_str}")
+    test_res = await test_connection(payload.conn_str, timeout=5.0)
+    if not test_res.get("ok"):
+        logger.error(f"Connection test failed during registration: {test_res.get('error')}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not connect to database: {test_res.get('error')}"
+        )
+
     # Encrypt the connection string before storage
     conn_str_enc = encrypt_value(payload.conn_str)
 
@@ -194,9 +208,16 @@ async def register_connection(
         )
         session.add(new_conn)
         await session.commit()
-        await session.refresh(new_conn)
-        logger.info(f"Connection registered: {new_conn.id} by user {user_id}")
-        return _conn_to_response(new_conn)
+        
+        # Reload with relationships
+        stmt = select(UserDatabase).options(
+            selectinload(UserDatabase.column_encryption_configs)
+        ).where(UserDatabase.id == new_conn.id)
+        result = await session.execute(stmt)
+        new_conn_loaded = result.scalars().first()
+        
+        logger.info(f"Connection registered: {new_conn_loaded.id} by user {user_id}")
+        return _conn_to_response(new_conn_loaded)
 
 
 @router.get("", response_model=List[ConnectionResponse])
@@ -216,7 +237,9 @@ async def list_connections(
         raise HTTPException(status_code=400, detail="Invalid user_id")
 
     async with PrimarySession() as session:
-        stmt = select(UserDatabase).where(
+        stmt = select(UserDatabase).options(
+            selectinload(UserDatabase.column_encryption_configs)
+        ).where(
             UserDatabase.user_id == user_uuid,
         ).order_by(UserDatabase.created_at.desc())
         result = await session.execute(stmt)
@@ -511,7 +534,22 @@ async def get_connection_schema(
                       AND kcu.table_schema = c.table_schema
                       AND kcu.table_name = c.table_name
                       AND kcu.column_name = c.column_name
-                ) as is_pk
+                ) as is_pk,
+                (
+                    SELECT ccu.table_name || '.' || ccu.column_name
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu 
+                      ON tc.constraint_name = kcu.constraint_name
+                      AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu 
+                      ON ccu.constraint_name = tc.constraint_name
+                      AND ccu.table_schema = tc.table_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.table_schema = c.table_schema
+                      AND kcu.table_name = c.table_name
+                      AND kcu.column_name = c.column_name
+                    LIMIT 1
+                ) as fk_reference
             FROM information_schema.columns c
             WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
             ORDER BY c.table_schema, c.table_name, c.ordinal_position;
@@ -535,6 +573,7 @@ async def get_connection_schema(
         col_type = r["data_type"]
         nullable = r["is_nullable"] == "YES"
         is_pk = r["is_pk"]
+        fk_ref = r["fk_reference"]
 
         if sch_name not in schema_map:
             schema_map[sch_name] = {}
@@ -545,7 +584,8 @@ async def get_connection_schema(
             "name": col_name,
             "type": col_type,
             "pk": is_pk,
-            "nullable": nullable
+            "nullable": nullable,
+            "fk": fk_ref
         })
 
     response_data = []

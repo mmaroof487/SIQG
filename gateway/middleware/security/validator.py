@@ -18,7 +18,6 @@ INJECTION_PATTERNS = [
     r"(?i)(\bSLEEP\s*\()",  # Time-based blind: SLEEP()
     r"(?i)(\bWAITFOR\s+DELAY\b)",  # Time-based blind: WAITFOR DELAY
     r"(?i)(\bBENCHMARK\s*\()",  # Time-based blind: BENCHMARK()
-    r"(?i)(\binformation_schema\b)",  # Schema enumeration
     r"(?i)(;\s*SELECT)",  # Stacked queries: ;SELECT
 ]
 

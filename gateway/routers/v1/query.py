@@ -267,8 +267,25 @@ async def execute_query(
                 logger.info(f"[{trace_id}] ✅ Cache HIT - returning cached result")
                 # Record cache hit metric
                 await increment(request, "cache_hits")
-                # Pull analysis metadata directly from cache to completely avoid DB hits
                 cached_analysis = cached_data.get("analysis", {})
+                
+                asyncio.create_task(write_audit_log(
+                    trace_id=trace_id,
+                    user_id=request.state.user_id,
+                    role=request.state.role,
+                    fingerprint=fingerprint,
+                    query_type=query_type,
+                    latency_ms=(time.time() - request_start_time) * 1000,
+                    status="success",
+                    cached=True,
+                    slow=False,
+                    anomaly_flag=False,
+                    connection_id=payload.connection_id,
+                    query_preview=clean_query[:500],
+                    rows_returned=cached_data.get("rows_count", 0),
+                    cost=cached_data.get("cost", 0.0),
+                ))
+                
                 return QueryResult(
                     trace_id=trace_id,
                     query_type=query_type,
@@ -497,6 +514,9 @@ async def execute_query(
             slow=is_slow,
             anomaly_flag=getattr(request.state, "anomaly_flag", False),
             connection_id=payload.connection_id,
+            query_preview=clean_query[:500],
+            rows_returned=len(rows_dict),
+            cost=cost if cost is not None else 0.0,
         ))
         logger.debug(f"[{trace_id}] ✅ Audit log scheduled")
 
@@ -621,6 +641,9 @@ async def execute_query(
             anomaly_flag=getattr(request.state, "anomaly_flag", False),
             error_message=str(getattr(e, "detail", str(e)))[:500],
             connection_id=payload.connection_id,
+            query_preview=clean_query[:500] if 'clean_query' in locals() else (payload.query[:500] if 'payload' in locals() else ""),
+            rows_returned=0,
+            cost=0.0,
         ))
         raise
     except Exception as e:
@@ -685,3 +708,20 @@ async def get_budget(request: Request, user=Depends(get_current_user)):
         "remaining": max(0, remaining),
         "resets_at": tomorrow_midnight.isoformat() + "Z"
     }
+
+@router.get("/history")
+async def get_query_history(
+    request: Request,
+    user=Depends(get_current_user),
+    limit: int = 50,
+    offset: int = 0,
+):
+    """
+    Get personal query history.
+    """
+    from middleware.observability.audit import get_audit_logs
+    
+    user_id = str(user.get("sub", getattr(request.state, "user_id", "")))
+    logs = await get_audit_logs(user_id=user_id, limit=limit, offset=offset)
+    return logs
+
