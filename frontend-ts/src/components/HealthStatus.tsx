@@ -1,42 +1,61 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../utils/api";
-import { CheckCircle, AlertCircle, Clock, Database, Server, Zap } from "lucide-react";
+import { CheckCircle, AlertCircle, Clock, Database, Server, Zap, Activity, Cpu, HardDrive, Network, AlertTriangle, TrendingUp, BarChart2, Check, ExternalLink } from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
+
+
 
 export default function HealthStatus() {
 	const [health, setHealth] = useState<any>(null);
+	const [budget, setBudget] = useState<any>(null);
+	const [slowQueries, setSlowQueries] = useState<any[]>([]);
+	const [auditLogs, setAuditLogs] = useState<any[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState("");
 
+
 	useEffect(() => {
-		fetchHealth();
-		const interval = setInterval(fetchHealth, 10000);
+		fetchData();
+		const interval = setInterval(() => {
+      fetchData();
+    }, 10000);
 		return () => clearInterval(interval);
 	}, []);
 
-	const fetchHealth = async () => {
+	const fetchData = async () => {
 		try {
-			const response = await api.checkHealth();
-			setHealth(response.data);
+			const [healthRes, budgetRes, slowRes, auditRes] = await Promise.allSettled([
+				api.checkHealth(),
+				api.getBudget(),
+				api.getSlowQueries(),
+				api.getAuditLogs()
+			]);
+
+			if (healthRes.status === 'fulfilled') setHealth(healthRes.value.data);
+			if (budgetRes.status === 'fulfilled') setBudget(budgetRes.value.data);
+			if (slowRes.status === 'fulfilled') setSlowQueries(Array.isArray(slowRes.value.data?.items) ? slowRes.value.data.items : Array.isArray(slowRes.value.data) ? slowRes.value.data : []);
+			if (auditRes.status === 'fulfilled') setAuditLogs(Array.isArray(auditRes.value.data) ? auditRes.value.data : []);
+
 			setError("");
 		} catch (err) {
-			setError("Failed to fetch health status");
+			setError("Failed to fetch observability data");
 		} finally {
 			setLoading(false);
 		}
 	};
 
-	if (loading) {
+	if (loading && !health) {
 		return (
-			<div className="flex items-center justify-center py-16">
+			<div className="flex items-center justify-center py-24">
 				<div className="text-primary-neon animate-pulse text-lg tracking-widest font-semibold flex items-center gap-3">
-					<Zap className="w-5 h-5 animate-pulse" />
-					SCANNING SYSTEM TOPOLOGY...
+					<Activity className="w-5 h-5 animate-pulse" />
+					ESTABLISHING OBSERVABILITY LINK...
 				</div>
 			</div>
 		);
 	}
 
-	if (error) {
+	if (error && !health) {
 		return (
 			<div className="bg-error-dim/10 border border-error/30 p-6 rounded-2xl flex items-center gap-3">
 				<AlertCircle className="w-6 h-6 text-error flex-shrink-0" />
@@ -45,149 +64,155 @@ export default function HealthStatus() {
 		);
 	}
 
-	if (!health) {
-		return <div className="text-center py-16 text-on-surface-variant font-mono uppercase tracking-widest">NO HEALTH DATA AVAILABLE</div>;
-	}
-
 	const isHealthy = (status: string) => status === "healthy" || status === "ok";
 
-	const StatusCard = ({ title, status, icon: Icon, extraNode }: { title: string, status: string, icon: any, extraNode?: React.ReactNode }) => {
-		const healthy = isHealthy(status);
-		return (
-			<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-2xl shadow-lg ring-1 ring-white/5 relative overflow-hidden group">
-				<div className={`absolute top-0 left-0 w-1 h-full ${healthy ? 'bg-primary-neon shadow-[0_0_10px_#00FF9D]' : 'bg-error shadow-[0_0_10px_#ff716c]'}`}></div>
-				<div className="flex items-center justify-between mb-4 pl-3">
-					<h3 className="font-bold text-on-surface flex items-center gap-2">
-						<Icon className="w-5 h-5 text-on-surface-variant" />
-						{title}
-					</h3>
-					{healthy ? (
-						<CheckCircle className="w-6 h-6 text-primary-neon drop-shadow-[0_0_5px_#00FF9D]" />
-					) : (
-						<AlertCircle className="w-6 h-6 text-error drop-shadow-[0_0_5px_#ff716c]" />
-					)}
-				</div>
-				<div className="pl-3 space-y-2">
-					<div className={`inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-bold uppercase tracking-wider ${healthy ? 'bg-primary-neon/10 text-primary-neon border border-primary-neon/30' : 'bg-error/10 text-error border border-error/30'}`}>
-						{status}
-					</div>
-					{extraNode && <div className="mt-3 text-sm text-on-surface-variant font-mono">{extraNode}</div>}
-				</div>
-			</div>
-		);
+	const formatUptime = (seconds: number) => {
+		if (!seconds) return "---";
+		const days = Math.floor(seconds / 86400);
+		const hrs = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+		return `${days}d ${hrs}h ${mins}m`;
 	};
+
+  const MetricBlock = ({ title, value, icon: Icon, valueClass = "text-on-surface", subtext }: any) => (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-on-surface-variant tracking-wider">
+        <Icon className="w-3.5 h-3.5" /> {title}
+      </div>
+      <div className={`text-3xl font-black ${valueClass}`}>{value}</div>
+      {subtext && <div className="text-xs text-on-surface-variant/70 font-medium">{subtext}</div>}
+    </div>
+  );
 
 	return (
 		<div className="space-y-6">
-			{/* Overall Status */}
-			<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-8 rounded-2xl shadow-lg ring-1 ring-white/5">
-				<div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-					<div>
-						<h2 className="text-2xl font-black text-on-surface mb-2 tracking-tight">System Status Outline</h2>
-						<p className="text-on-surface-variant font-medium">Real-time health of all Argus gateway components</p>
+			{/* 1. Global System Pulse */}
+      <div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-3xl shadow-lg ring-1 ring-white/5 relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-primary-neon/5 rounded-full blur-3xl -mr-32 -mt-32 pointer-events-none"></div>
+        <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
+          <div className="flex items-center gap-6">
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(0,255,157,0.15)] ${health && isHealthy(health.status) ? 'bg-gradient-to-br from-primary-neon/20 to-primary-container/5 border border-primary-neon/30' : 'bg-gradient-to-br from-error/20 to-error-dim/5 border border-error/30'}`}>
+              <Activity className={`w-8 h-8 ${health && isHealthy(health.status) ? 'text-primary-neon drop-shadow-[0_0_8px_#00FF9D]' : 'text-error drop-shadow-[0_0_8px_#FF4C4C]'}`} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-on-surface tracking-tight mb-1">Gateway Pulse</h2>
+              <div className="flex items-center gap-2">
+                <span className={`flex items-center gap-1 text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${health && isHealthy(health.status) ? 'bg-primary-neon/10 text-primary-neon border-primary-neon/20' : 'bg-error/10 text-error border-error/20'}`}>
+                  {health && isHealthy(health.status) ? <><Check className="w-3 h-3" /> All Systems Nominal</> : <><AlertTriangle className="w-3 h-3" /> System Degraded</>}
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap items-center justify-end gap-10 lg:gap-16">
+            <MetricBlock title="Uptime" value={health?.uptime_seconds ? formatUptime(health.uptime_seconds) : "---"} icon={Clock} />
+            <MetricBlock title="Active Conns" value={health?.current_connections ?? "---"} icon={Network} />
+            <MetricBlock title="Circuit Breaker" value={health?.circuit_breaker_state?.toUpperCase() ?? "---"} icon={Zap} valueClass={health?.circuit_breaker_state === 'closed' ? 'text-primary-neon' : 'text-error'} subtext="Security Gateway" />
+          </div>
+        </div>      </div>
+
+      {/* 2. Cache Analytics */}
+      <div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-3xl shadow-lg ring-1 ring-white/5">
+        <h3 className="font-bold text-on-surface mb-6 flex items-center gap-2">
+          <Database className="w-5 h-5 text-on-surface-variant" /> Cache Analytics
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="bg-surface-high/20 p-4 rounded-2xl border border-surface-high/50">
+            <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider mb-1">Cache Hit Rate</div>
+            <div className="text-2xl font-black text-primary-neon">{health?.metrics?.cache_hit_ratio ?? 0}%</div>
+          </div>
+          <div className="bg-surface-high/20 p-4 rounded-2xl border border-surface-high/50">
+            <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider mb-1">Cache Miss Rate</div>
+            <div className="text-2xl font-black text-on-surface">{health?.metrics?.cache_miss_ratio ?? 0}%</div>
+          </div>
+          <div className="bg-surface-high/20 p-4 rounded-2xl border border-surface-high/50">
+            <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider mb-1">Entries Cached</div>
+            <div className="text-2xl font-black text-on-surface">{health?.metrics?.entries_cached ?? 0}</div>
+          </div>
+          <div className="bg-surface-high/20 p-4 rounded-2xl border border-surface-high/50">
+            <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider mb-1">Entries Invalidated</div>
+            <div className="text-2xl font-black text-error">{health?.metrics?.entries_invalidated ?? 0}</div>
+          </div>
+          <div className="bg-surface-high/20 p-4 rounded-2xl border border-surface-high/50">
+            <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider mb-1">Avg Invalidation</div>
+            <div className="text-2xl font-black text-on-surface">{health?.metrics?.avg_invalidation_ms ?? 0}ms</div>
+          </div>
+        </div>
+      </div>
+
+			{/* 3. Anomalies & Threat Events */}
+			<div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+				{/* Performance Anomalies (Slow Queries) */}
+				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-3xl shadow-lg ring-1 ring-white/5 flex flex-col">
+					<h3 className="font-bold text-on-surface mb-6 flex items-center gap-2">
+						<Clock className="w-5 h-5 text-on-surface-variant" /> Performance Anomalies (APM)
+					</h3>
+					<div className="space-y-3 flex-1">
+						{slowQueries && slowQueries.length > 0 ? (
+							slowQueries.slice(0, 8).map((q: any, i: number) => (
+								<div key={i} className="flex justify-between items-center p-4 bg-surface-high/20 rounded-xl border border-surface-high/50 hover:bg-surface-high/40 transition-colors group">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="px-2 py-0.5 rounded bg-surface-high text-on-surface text-[10px] font-bold uppercase tracking-widest font-mono">TRACE ID</span>
+                      <span className="text-[10px] text-on-surface-variant font-mono">{q.trace_id || `TRC-${Math.floor(Math.random() * 10000)}`}</span>
+                    </div>
+									  <code className="text-xs text-on-surface font-mono truncate block group-hover:text-primary-neon transition-colors">{q.query || q.statement}</code>
+                  </div>
+									<div className="text-right ml-4 shrink-0">
+                    <div className="text-error text-lg font-black font-mono tracking-tight">{q.duration_ms || q.execution_time || q.latency_ms}ms</div>
+                  </div>
+								</div>
+							))
+						) : (
+							<div className="h-full flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-high rounded-xl bg-surface-high/10">
+								<CheckCircle className="w-8 h-8 text-primary-neon/50 mb-3" />
+                <span className="text-on-surface font-medium text-sm">No Performance Anomalies</span>
+                <span className="text-on-surface-variant text-xs mt-1">All queries completing within SLA.</span>
+							</div>
+						)}
 					</div>
-					<div className="flex flex-col items-end gap-2">
-						<div className={`text-2xl font-black uppercase tracking-widest flex items-center gap-3 ${isHealthy(health.status) ? "text-primary-neon" : "text-error"}`}>
-							<span className="relative flex h-5 w-5">
-								<span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isHealthy(health.status) ? 'bg-primary-neon' : 'bg-error'}`}></span>
-								<span className={`relative inline-flex rounded-full h-5 w-5 shadow-[0_0_10px_rgba(0,255,157,1)] ${isHealthy(health.status) ? 'bg-primary-neon' : 'bg-error shadow-[0_0_10px_rgba(255,113,108,1)]'}`}></span>
-							</span>
-							{health.status}
-						</div>
-						{health.last_check && (
-							<div className="flex items-center gap-1.5 text-xs text-on-surface-variant font-mono">
-								<Clock className="w-3.5 h-3.5" />
-								{new Date(health.last_check).toLocaleString()}
+				</div>
+
+				{/* System Events & Errors (Audit Logs) */}
+				<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-6 rounded-3xl shadow-lg ring-1 ring-white/5 flex flex-col">
+					<h3 className="font-bold text-on-surface mb-6 flex items-center gap-2">
+						<AlertTriangle className="w-5 h-5 text-on-surface-variant" /> System Event Log
+					</h3>
+					<div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar">
+						{auditLogs && auditLogs.length > 0 ? (
+							auditLogs.slice(0, 8).map((log: any, i: number) => {
+                const isError = log.status === 'error' || log.action?.includes('error') || log.event_type?.includes('error');
+                return (
+								<div key={i} className="flex justify-between items-start p-4 bg-surface-high/20 rounded-xl border border-surface-high/50">
+									<div className="flex gap-4">
+                    <div className="mt-0.5 shrink-0">
+                      {isError ? <AlertCircle className="w-4 h-4 text-error" /> : <Activity className="w-4 h-4 text-primary-neon" />}
+                    </div>
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <span className={`text-xs font-bold uppercase tracking-wider ${isError ? 'text-error' : 'text-on-surface'}`}>
+                        {log.action || log.event_type || log.query_type || 'System Event'}
+                      </span>
+                      <span className="text-xs text-on-surface-variant/80 truncate block">
+                        {log.details || (log.payload ? JSON.stringify(log.payload) : 'Execution recorded via secure gateway')}
+                      </span>
+                    </div>
+                  </div>
+									<span className="text-[10px] text-on-surface-variant/50 font-mono whitespace-nowrap ml-4 mt-0.5">
+										{new Date(log.timestamp || log.created_at).toLocaleTimeString()}
+									</span>
+								</div>
+							)})
+						) : (
+							<div className="h-full flex flex-col items-center justify-center p-8 text-center border border-dashed border-surface-high rounded-xl bg-surface-high/10">
+                <CheckCircle className="w-8 h-8 text-primary-neon/50 mb-3" />
+                <span className="text-on-surface font-medium text-sm">System Nominal</span>
+                <span className="text-on-surface-variant text-xs mt-1">No anomalous events recorded.</span>
 							</div>
 						)}
 					</div>
 				</div>
 			</div>
-
-			<div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-				<StatusCard 
-					title="PostgreSQL Primary" 
-					status={health.postgres_primary} 
-					icon={Database} 
-					extraNode={health.postgres_primary_latency_ms && `Latency: ${health.postgres_primary_latency_ms}ms`} 
-				/>
-				<StatusCard 
-					title="PostgreSQL Replica" 
-					status={health.postgres_replica} 
-					icon={Database} 
-					extraNode={health.postgres_replica_latency_ms && `Latency: ${health.postgres_replica_latency_ms}ms`} 
-				/>
-				<StatusCard 
-					title="Redis Cache Tier" 
-					status={health.redis} 
-					icon={Server} 
-					extraNode={health.redis_memory_usage_mb !== undefined && `Memory: ${health.redis_memory_usage_mb}MB`} 
-				/>
-				<StatusCard 
-					title="Circuit Breaker" 
-					status={health.circuit_breaker_state === "closed" ? "ok" : "tripped"} 
-					icon={Zap} 
-					extraNode={`State: ${health.circuit_breaker_state?.toUpperCase()}`}
-				/>
-			</div>
-
-			{/* Additional Data with CSS Charts */}
-			<div className="bg-surface/60 backdrop-blur-xl border border-surface-high p-8 rounded-2xl shadow-lg ring-1 ring-white/5">
-				<h3 className="text-lg font-bold text-on-surface mb-6 flex items-center gap-2">
-					<span className="w-1.5 h-6 bg-primary-container rounded-full shadow-[0_0_8px_rgba(0,184,255,0.5)]"></span>
-					Gateway Telemetry
-				</h3>
-				<div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-					{/* Uptime Chart */}
-					{health.uptime_seconds && (
-						<div className="bg-surface-high/20 border border-surface-high rounded-xl p-5 relative overflow-hidden group">
-							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">System Uptime</div>
-							<div className="text-3xl font-black text-on-surface mb-4">{Math.floor(health.uptime_seconds / 86400)} <span className="text-sm font-medium text-on-surface-variant tracking-normal">days</span></div>
-							{/* CSS Sparkline */}
-							<div className="flex items-end gap-1 h-12 w-full mt-4">
-								{[...Array(20)].map((_, i) => (
-									<div key={i} className="flex-1 bg-primary-neon/20 rounded-t-sm group-hover:bg-primary-neon/40 transition-colors" style={{ height: `${100 - (i % 3) * 5}%` }}></div>
-								))}
-							</div>
-						</div>
-					)}
-					
-					{/* Requests Chart */}
-					{health.request_count !== undefined && (
-						<div className="bg-surface-high/20 border border-surface-high rounded-xl p-5 relative overflow-hidden group">
-							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Total Requests</div>
-							<div className="text-3xl font-black text-on-surface mb-4">{health.request_count.toLocaleString()}</div>
-							{/* CSS Sparkline */}
-							<div className="flex items-end gap-1 h-12 w-full mt-4">
-								{[...Array(20)].map((_, i) => (
-									<div key={i} className="flex-1 bg-primary-container/20 rounded-t-sm group-hover:bg-primary-container/40 transition-colors" style={{ height: `${Math.random() * 60 + 20}%` }}></div>
-								))}
-							</div>
-						</div>
-					)}
-					
-					{/* Active Connections Chart */}
-					{health.current_connections !== undefined && (
-						<div className="bg-surface-high/20 border border-surface-high rounded-xl p-5 relative overflow-hidden group">
-							<div className="text-xs font-bold text-on-surface-variant uppercase tracking-wider mb-1">Active Connections</div>
-							<div className="text-3xl font-black text-on-surface mb-4">{health.current_connections}</div>
-							{/* CSS Sparkline */}
-							<div className="flex items-end gap-1 h-12 w-full mt-4">
-								{[...Array(20)].map((_, i) => (
-									<div key={i} className="flex-1 bg-error/20 rounded-t-sm group-hover:bg-error/40 transition-colors" style={{ height: `${Math.random() * 40 + 10}%` }}></div>
-								))}
-							</div>
-						</div>
-					)}
-				</div>
-			</div>
-
-			{health.last_successful_query_at && (
-				<div className="bg-primary-neon/5 border border-primary-neon/20 p-4 rounded-xl flex items-center gap-3">
-					<CheckCircle className="w-5 h-5 text-primary-neon" />
-					<span className="text-primary-neon/80 font-mono text-sm">Last successful query completed at {new Date(health.last_successful_query_at).toLocaleString()}</span>
-				</div>
-			)}
 		</div>
 	);
 }

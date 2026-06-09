@@ -1,7 +1,7 @@
 """Audit logger - immutable insert-only log with retry mechanism."""
 import asyncio
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from models import AuditLog
@@ -75,7 +75,7 @@ async def write_audit_log(
                     )
                     # Record failure with timestamp for diagnostics
                     logger.error(
-                        f"AUDIT_FAILURE | trace_id={trace_id} | user_id={user_id} | timestamp={datetime.utcnow().isoformat()}"
+                        f"AUDIT_FAILURE | trace_id={trace_id} | user_id={user_id} | timestamp={datetime.now(timezone.utc).replace(tzinfo=None).isoformat()}"
                     )
                 else:
                     # Transient failure — retry with exponential backoff
@@ -135,3 +135,5 @@ async def get_audit_logs(
     except Exception as e:
         logger.error(f"Audit log query failed: {e}")
         return []
+
+

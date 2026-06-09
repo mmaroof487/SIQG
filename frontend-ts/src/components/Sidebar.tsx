@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Home, Database, Map, ShieldAlert, User, LayoutDashboard, LineChart } from 'lucide-react';
 import clsx from 'clsx';
 import { useSettings } from '../contexts/SettingsContext';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
+import { api } from '../utils/api';
 
 function SidebarLink({ to, icon: Icon, label, badge, alert, isCollapsed, hoveredPath, setHoveredPath, ...props }: any) {
   const isActive = window.location.pathname.startsWith(to);
@@ -78,21 +79,46 @@ export default function Sidebar() {
   const { role } = useSettings();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
+  const [connectionsCount, setConnectionsCount] = useState<number | null>(null);
   
+  useEffect(() => {
+    const fetchCount = () => {
+      api.getConnections().then(res => {
+        const active = res.data.filter((c: any) => c.is_active);
+        setConnectionsCount(active.length);
+      }).catch(() => {});
+    };
+    
+    fetchCount();
+    window.addEventListener('connectionsUpdated', fetchCount);
+    return () => window.removeEventListener('connectionsUpdated', fetchCount);
+  }, []);
+
   const linkProps = { isCollapsed, hoveredPath, setHoveredPath };
 
   return (
     <motion.aside 
       initial={false}
-      animate={{ width: isCollapsed ? 80 : 256 }}
+      animate={{ width: isCollapsed ? 80 : 220 }}
+      onUpdate={(latest) => {
+        if (latest.width) {
+          document.documentElement.style.setProperty('--sidebar-width', `${latest.width}px`);
+        }
+      }}
       className="flex-shrink-0 border-r border-surface-high h-[calc(100vh-4rem)] sticky top-16 flex flex-col bg-surface/40 backdrop-blur-sm py-4 gap-2 z-40 relative"
     >
       <LayoutGroup id="sidebar-hover-group">
       <div className="flex flex-col relative z-10">
         <SidebarLink to="/dashboard" icon={LayoutDashboard} label="Dashboard" {...linkProps} />
         <SidebarLink to="/query" icon={Home} label="Query Studio" {...linkProps} />
-        <SidebarLink to="/connections" icon={Database} label="Connections" badge="2" {...linkProps} />
-        <SidebarLink to="/schema" icon={Map} label="Schema Explorer" badge="33" {...linkProps} />
+        <SidebarLink 
+          to="/connections" 
+          icon={Database} 
+          label="Connections" 
+          badge={connectionsCount !== null ? connectionsCount.toString() : undefined} 
+          {...linkProps} 
+        />
+        <SidebarLink to="/schema" icon={Map} label="Schema Explorer" {...linkProps} />
 
         {role === 'admin' && (
           <>

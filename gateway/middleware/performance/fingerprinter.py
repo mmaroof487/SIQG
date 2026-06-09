@@ -30,12 +30,38 @@ def normalize_query(query: str) -> str:
     return query.upper()
 
 
+def normalize_for_cache(query: str) -> str:
+    """
+    Normalize a SQL query for caching without stripping literal parameters.
+    - Remove comments
+    - Normalize whitespace
+    - Convert to uppercase for consistent hashing
+    """
+    # Remove comments
+    query = re.sub(r'--.*?$', '', query, flags=re.MULTILINE)
+    query = re.sub(r'/\*.*?\*/', '', query, flags=re.DOTALL)
+
+    # Normalize whitespace
+    query = ' '.join(query.split())
+
+    # Case-insensitive for matching
+    return query.upper()
+
+
 def fingerprint_query(query: str) -> str:
     """
-    Generate a SHA-256 fingerprint of a normalized query.
-    Used as cache key.
+    Generate a SHA-256 fingerprint of a normalized query (with parameters stripped).
+    Used for query whitelisting and metrics.
     """
     normalized = normalize_query(query)
+    return hashlib.sha256(normalized.encode()).hexdigest()
+
+def fingerprint_cache_key(query: str) -> str:
+    """
+    Generate a SHA-256 fingerprint of a normalized query (with parameters intact).
+    Used as the cache key so queries with different parameters do not collide.
+    """
+    normalized = normalize_for_cache(query)
     return hashlib.sha256(normalized.encode()).hexdigest()
 
 

@@ -169,13 +169,12 @@ async def execute_query(
         query_lower = payload.query.lower()
 
         # Check: Does the query explicitly name a sensitive field?
-        # (not just in comments, but as actual column reference)
         has_select_star = "SELECT *" in query_upper or "SELECT  *" in query_upper
 
         if not has_select_star:
-            # Query doesn't have SELECT * — check if it explicitly names sensitive fields
+            import re
             for field in settings.sensitive_fields:
-                if field in query_lower:
+                if re.search(rf"\b{re.escape(field)}\b", clean_query.lower()):
                     logger.warning(f"[{trace_id}] ⚠️ Sensitive field '{field}' detected in query")
                     raise HTTPException(
                         status_code=403,
@@ -417,7 +416,8 @@ async def execute_query(
                     await external_conn.execute(execution_query)
                     rows_dict = []
             except Exception as ext_err:
-                raise HTTPException(status_code=400, detail=str(ext_err)[:200])
+                logger.error(f"[{trace_id}] External connection error: {ext_err}")
+                raise HTTPException(status_code=400, detail="Query execution failed on external connection")
         else:
             rows, _ = await execute_with_timeout(request, execution_query)
             if is_select:
@@ -433,7 +433,8 @@ async def execute_query(
         # **Cache Invalidation** - For INSERT/UPDATE/DELETE, invalidate affected tables
         # Fire-and-forget: don't block the response waiting for cache cleanup
         if not is_select and affected_tables:
-            asyncio.create_task(invalidate_table_cache(request, affected_tables))
+            conn_scope = payload.connection_id if payload.connection_id else "default"
+            asyncio.create_task(invalidate_table_cache(request, affected_tables, conn_scope))
             # Also invalidate connection-scoped cache keys for external connections
             if payload.connection_id:
                 from utils.connection_manager import invalidate_connection_cache
@@ -682,11 +683,11 @@ async def get_budget(request: Request, user=Depends(get_current_user)):
         - remaining: Cost units left for today
         - resets_at: Time when budget resets (midnight UTC)
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timezone, timedelta
 
     redis = request.app.state.redis
     user_id = str(user.get("sub", request.state.user_id))
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     budget_key = f"argus:budget:{user_id}:{today.isoformat()}"
 
     # Get current usage
@@ -698,7 +699,7 @@ async def get_budget(request: Request, user=Depends(get_current_user)):
     remaining = daily_budget - current_usage
 
     # Calculate reset time (next midnight UTC)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     tomorrow_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     return {
@@ -722,6 +723,10 @@ async def get_query_history(
     from middleware.observability.audit import get_audit_logs
     
     user_id = str(user.get("sub", getattr(request.state, "user_id", "")))
-    logs = await get_audit_logs(user_id=user_id, limit=limit, offset=offset)
+    safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, min(offset, 1_000_000))
+    logs = await get_audit_logs(user_id=user_id, limit=safe_limit, offset=safe_offset)
     return logs
+
+
 

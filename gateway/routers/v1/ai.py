@@ -54,6 +54,10 @@ _DB_TOPIC_KEYWORDS = {
     "aggregate", "count", "sum", "avg", "min", "max", "distinct",
     "filter", "sort", "search", "find", "show", "list", "get",
     "users", "orders", "products", "customers", "transactions",
+    # Relationship concepts
+    "connected", "related", "linked", "relationship", "relationships",
+    "entities", "entity", "connect", "link", "depend", "dependency",
+    "group", "groups", "community", "communities", "about",
     # Anomaly / performance (for explain-anomaly endpoint)
     "anomaly", "spike", "performance", "latency", "slow query", "cache",
     "rate limit", "circuit breaker", "timeout", "connection",
@@ -203,6 +207,27 @@ class SchemaChatResponse(BaseModel):
 # LLM Prompts
 # ============================================================================
 
+SYSTEM_PROMPT_SCHEMA_INTELLIGENCE = """You are an expert Database Architect and AI Analyst.
+Analyze the provided database schema and generate a JSON intelligence report.
+
+RULES:
+- Return ONLY valid JSON, no markdown formatting or backticks.
+- Do not include any explanations outside the JSON.
+- The JSON must match this exact structure:
+{
+  "business_domain": "Short title describing the app (e.g. 'E-Commerce Platform', 'Fitness Tracking App')",
+  "core_entities": ["list", "of", "core", "tables"],
+  "summary": "A 2-3 sentence summary of what this database is for and its likely primary user flows.",
+  "relationship_count": <integer representing total explicit and inferred relationships>,
+  "suggested_questions": [
+    "Question 1?",
+    "Question 2?",
+    "Question 3?"
+  ]
+}
+- For suggested_questions, generate 3-5 analytical questions that a user might want to ask about their data.
+"""
+
 SYSTEM_PROMPT_NL_TO_SQL = """You are a SQL query generator for PostgreSQL.
 Convert the user's question to a SQL query.
 
@@ -251,7 +276,7 @@ The user will ask you questions about their database schema, structure, tables, 
 CRITICAL RULES:
 1. STRICTLY restrict your answers to the database schema, query writing, tables, and data structure.
 2. If the user asks ANY question unrelated to databases, schemas, or data analysis (e.g., general knowledge, coding outside of SQL, casual chat, harmful prompts), you MUST refuse to answer and state: "I can only assist with questions regarding the database schema and queries."
-3. Be concise and helpful. Format your answers using markdown. Use code blocks for SQL queries.
+3. Be concise and helpful. Respond in natural, conversational plain text. DO NOT use markdown formatting (no asterisks for bold, no backticks for code blocks). Just use normal text spacing.
 4. Reference the provided schema context to ensure your answers are accurate to the user's specific database.
 """
 
@@ -327,6 +352,21 @@ async def call_llm_mock(system: str, user_message: str) -> str:
     is_explain = "explain" in system.lower()
     is_anomaly = "anomaly" in system.lower()
     is_insights = "analyst" in system.lower() or "insight" in system.lower()
+    is_intelligence = "json intelligence report" in system.lower()
+    
+    if is_intelligence:
+        import json
+        return json.dumps({
+            "business_domain": "Argus Demo Database",
+            "core_entities": ["users", "orders", "products"],
+            "summary": "This is a mock intelligence report generated for development purposes. It represents a standard e-commerce flow where users place orders for products.",
+            "relationship_count": 12,
+            "suggested_questions": [
+                "Which users have placed the most orders?",
+                "What is the total revenue by product category?",
+                "How many active users signed up this month?"
+            ]
+        })
 
     if is_insights:
         if "rows: []" in user_message.lower():

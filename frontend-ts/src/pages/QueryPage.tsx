@@ -8,7 +8,7 @@ import CostAnalysisCard from "../components/CostAnalysisCard";
 import QueryInsightsPanel from "../components/QueryInsightsPanel";
 import AuditTimeline from "../components/AuditTimeline";
 import { api } from "../utils/api";
-import { Copy, Play, Zap, TerminalSquare, Activity, Cpu, AlertCircle, Download, Database, ListTree, Clock, Sparkles, ChevronDown, ShieldAlert, AlertTriangle } from "lucide-react";
+import { Copy, Play, Zap, TerminalSquare, Activity, Cpu, AlertCircle, Download, Database, ListTree, Clock, Sparkles, ChevronDown, ShieldAlert, AlertTriangle, Home } from "lucide-react";
 import { useSettings } from "../contexts/SettingsContext";
 import Editor from "@monaco-editor/react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -52,8 +52,8 @@ export default function QueryPage() {
 	// Pipeline States
     const [currentStage, setCurrentStage] = useState<'question' | 'sql' | 'security' | 'cost' | 'cache' | 'execute' | 'done' | 'error'>('done');
     const [securityStatus, setSecurityStatus] = useState<'pending' | 'safe' | 'warning' | 'error'>('safe');
-    const [costStatus, setCostStatus] = useState<'pending' | 'calculated'>('calculated');
-    const [cacheStatus, setCacheStatus] = useState<'pending' | 'hit' | 'miss'>('miss');
+    const [costStatus, setCostStatus] = useState<'pending' | 'calculated' | 'error'>('calculated');
+    const [cacheStatus, setCacheStatus] = useState<'pending' | 'hit' | 'miss' | 'error'>('miss');
     const [auditEvents, setAuditEvents] = useState<any[]>([]);
     
     // Insights & Extra Data
@@ -65,6 +65,7 @@ export default function QueryPage() {
     // UI States
     const [activeRightTab, setActiveRightTab] = useState<'Data' | 'Insights' | 'Execution Plan' | 'Audit Trail'>('Data');
     const [isExecutingPipeline, setIsExecutingPipeline] = useState(false);
+    const [isSqlExpanded, setIsSqlExpanded] = useState(true);
 
 	// Block Explainer state
 	const [blockedInfo, setBlockedInfo] = useState<{
@@ -95,10 +96,10 @@ export default function QueryPage() {
 			const activeConnections = res.data.filter((c: Connection) => c.is_active);
 			setConnections(activeConnections);
             const initialDb = location.state?.initialDb || "default";
-			if (activeConnections.length > 0 && initialDb === "default") {
-				setSelectedConnectionId(activeConnections[0].id);
+			if (initialDb !== "default") {
+				setSelectedConnectionId(initialDb);
 			} else {
-                setSelectedConnectionId(initialDb);
+                setSelectedConnectionId("default");
             }
 		} catch (err) {
 			console.error("Failed to load connections in query page:", err);
@@ -246,8 +247,21 @@ export default function QueryPage() {
                 setSecurityStatus('safe');
                 setCostStatus('error');
                 setCacheStatus('error');
-                setAuditEvents(prev => [...prev, { id: 'err', stage: 'Execution Failed', timestamp: new Date().toLocaleTimeString(), status: 'error', details: err.message }]);
-				setError(typeof detail === "string" ? detail : (err.message || "Query execution failed"));
+                
+                // Better error extraction for objects like {"error": "External connection failed", "detail": "..."}
+                let errorMsg = err.message;
+                let errorDetails = err.message;
+                
+                if (typeof detail === 'string') {
+                    errorMsg = detail;
+                    errorDetails = detail;
+                } else if (detail && typeof detail === 'object') {
+                    errorMsg = detail.error || err.message;
+                    errorDetails = detail.detail || JSON.stringify(detail);
+                }
+
+                setAuditEvents(prev => [...prev, { id: 'err', stage: 'Execution Failed', timestamp: new Date().toLocaleTimeString(), status: 'error', details: errorDetails }]);
+				setError(errorMsg);
 			}
 		} finally {
 			setIsExecutingPipeline(false);
@@ -258,7 +272,19 @@ export default function QueryPage() {
 
 	return (
 		<div className="flex flex-col h-full overflow-hidden pt-3 px-6 pb-[48px] gap-2 relative">
-			
+			{/* Header */}
+			<div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-4 flex-shrink-0">
+				<div className="flex items-center gap-6">
+					<div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-neon/20 to-primary-container/5 border border-primary-neon/30 flex items-center justify-center shadow-[0_0_20px_rgba(0,255,157,0.15)] backdrop-blur-xl shrink-0">
+						<Home className="w-8 h-8 text-primary-neon drop-shadow-[0_0_8px_#00FF9D]" />
+					</div>
+					<div>
+						<h1 className="text-4xl font-black text-on-surface mb-2 tracking-tight">Query Studio</h1>
+						<p className="text-on-surface-variant font-medium">Ask questions, generate SQL, and analyze data safely.</p>
+					</div>
+				</div>
+			</div>
+
             {/* Top: Ask Database Input */}
             <div className="w-full max-w-4xl mx-auto flex-shrink-0 z-10">
                 <NLQueryPanel
@@ -288,10 +314,10 @@ export default function QueryPage() {
             </AnimatePresence>
 
             {/* Bottom Content Area */}
-            <div className="flex flex-1 min-h-0 gap-4 w-full max-w-7xl mx-auto">
+            <div className={`flex flex-1 min-h-0 gap-4 w-full max-w-7xl mx-auto mt-0 ${isInitialState ? 'mb-4' : 'mb-0'}`}>
                 
                 {/* Left Column: Query Details (SQL, Security, Cost, Explain) */}
-                <div className={`flex flex-col gap-4 overflow-y-auto pr-2 scrollbar-hide transition-all duration-700 ease-in-out ${isInitialState ? 'w-1/2' : 'w-1/3'}`}>
+                <div className={`flex flex-col gap-2 overflow-y-auto pr-2 scrollbar-hide transition-all duration-700 ease-in-out ${isInitialState ? 'w-1/2' : 'w-1/3'}`}>
                     {/* Database Selector (compact) */}
                     <div className="flex justify-between items-center bg-surface/40 p-2 rounded-xl border border-surface-high">
                         <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2">
@@ -342,11 +368,15 @@ export default function QueryPage() {
                     </div>
 
                     {/* SQL Editor Area */}
-                    <div className="border border-surface-high rounded-xl overflow-hidden shadow-inner flex flex-col bg-surface/40 flex-1 min-h-[120px]">
+                    <div className={`border border-surface-high rounded-xl overflow-hidden shadow-inner flex flex-col bg-surface/40 flex-shrink-0 transition-all duration-300 ${isSqlExpanded ? 'flex-1 min-h-[250px]' : ''}`}>
                         <div className="bg-surface p-2 flex justify-between items-center border-b border-surface-high">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2">
+                            <button 
+                                onClick={() => setIsSqlExpanded(!isSqlExpanded)}
+                                className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-2 px-2 hover:text-on-surface transition-colors outline-none cursor-pointer"
+                            >
                                 <TerminalSquare className="w-3.5 h-3.5" /> Generated SQL
-                            </span>
+                                <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${isSqlExpanded ? 'rotate-180' : ''}`} />
+                            </button>
                             <button 
                                 onClick={() => handleExecuteQuery()} 
                                 disabled={isExecutingPipeline || !sqlQuery.trim()} 
@@ -355,30 +385,34 @@ export default function QueryPage() {
                                 <Play className="w-3 h-3" /> Execute
                             </button>
                         </div>
-                        <div className="flex-1 relative">
-                            <Editor
-                                height="100%"
-                                defaultLanguage="sql"
-                                theme="vs-dark"
-                                value={sqlQuery}
-                                onChange={(val) => setSqlQuery(val || "")}
-                                options={{ 
-                                    minimap: { enabled: false }, 
-                                    fontSize: 12, 
-                                    padding: { top: 8 },
-                                    lineDecorationsWidth: 6,
-                                    lineNumbersMinChars: 2,
-                                    glyphMargin: false,
-                                    folding: false,
-                                    scrollBeyondLastLine: false,
-                                    wordWrap: "on",
-                                    scrollbar: {
-                                        verticalScrollbarSize: 6,
-                                        horizontalScrollbarSize: 6
-                                    }
-                                }}
-                            />
-                        </div>
+                        {isSqlExpanded && (
+                            <div className="flex-1 relative">
+                                <Editor
+                                    height="100%"
+                                    defaultLanguage="sql"
+                                    theme="vs-dark"
+                                    value={sqlQuery}
+                                    onChange={(val) => setSqlQuery(val || "")}
+                                    options={{ 
+                                        minimap: { enabled: false }, 
+                                        fontSize: 12, 
+                                        padding: { top: 8, bottom: 8 },
+                                        lineDecorationsWidth: 6,
+                                        lineNumbersMinChars: 2,
+                                        glyphMargin: false,
+                                        folding: false,
+                                        scrollBeyondLastLine: false,
+                                        wordWrap: "on",
+                                        automaticLayout: true,
+                                        scrollbar: {
+                                            verticalScrollbarSize: 6,
+                                            horizontalScrollbarSize: 6,
+                                            alwaysConsumeMouseWheel: false
+                                        }
+                                    }}
+                                />
+                            </div>
+                        )}
                     </div>
 
                     {/* Pipeline Details Cards */}
@@ -411,7 +445,7 @@ export default function QueryPage() {
                 <div className={`flex flex-col bg-surface/40 border border-surface-high rounded-2xl overflow-hidden shadow-sm relative transition-all duration-700 ease-in-out ${isInitialState ? 'w-1/2' : 'w-2/3'}`}>
                     {!results && !isExecutingPipeline && !blockedInfo && !error ? (
                         /* Empty State View */
-                        <div className="p-6 h-full overflow-y-auto space-y-6 flex flex-col items-center justify-center text-center">
+                        <div className="p-6 h-full overflow-y-auto scrollbar-minimal space-y-6 flex flex-col items-center justify-center text-center">
                             <div className="space-y-2 max-w-md">
                                 <div className="w-12 h-12 bg-surface-high rounded-full flex items-center justify-center mx-auto mb-2">
                                     <Database className="w-6 h-6 text-on-surface-variant" />
@@ -473,7 +507,7 @@ export default function QueryPage() {
                                 </div>
                             </div>
                             
-                            <div className="flex-1 overflow-auto bg-surface/20 relative">
+                            <div className="flex-1 overflow-auto scrollbar-minimal bg-surface/20 relative">
                                 {isExecutingPipeline && activeRightTab === 'Data' && (
                                     <div className="absolute inset-0 bg-surface/50 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
                                         <div className="w-8 h-8 border-4 border-primary-neon/30 border-t-primary-neon rounded-full animate-spin mb-4" />
@@ -573,7 +607,10 @@ export default function QueryPage() {
             </div>
 
 			{/* Bottom Bar Fixed */}
-			<div className="fixed bottom-0 left-64 right-0 h-12 bg-surface/95 border-t border-surface-high backdrop-blur-md flex items-center justify-between px-6 z-40 shadow-[0_-5px_15px_rgba(0,0,0,0.2)]">
+			<div 
+				className="fixed bottom-0 right-0 h-12 bg-surface/95 border-t border-surface-high backdrop-blur-md flex items-center justify-between px-6 z-40 shadow-[0_-5px_15px_rgba(0,0,0,0.2)]"
+				style={{ left: "var(--sidebar-width, 220px)" }}
+			>
 				<div className="flex items-center gap-6">
 					<label className="flex items-center gap-2 cursor-pointer group">
 						<input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="w-4 h-4 rounded border-surface-high accent-primary-neon" />

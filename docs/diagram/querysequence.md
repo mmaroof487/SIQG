@@ -42,7 +42,7 @@ sequenceDiagram
 
     Note over G: Performance Layer
     G->>G: Fingerprint: normalize + SHA-256
-    G->>R: GET argus:cache:{fingerprint}:{role}
+    G->>R: GET argus:cache:{conn_scope}:{fingerprint}:{role}
     R-->>G: nil (cache miss)
     G->>G: Auto-inject LIMIT 1000 (if no LIMIT)
     G->>PGr: EXPLAIN (FORMAT JSON) SELECT...
@@ -62,8 +62,8 @@ sequenceDiagram
     G->>G: RBAC masking: strip deny-list cols, redact PII
 
     Note over G: Observability Layer
-    G->>R: SETEX argus:cache:{fp}:{role} 60 {rows}
-    G->>R: SADD argus:cache:tags:users {cache_key}
+    G->>R: SETEX argus:cache:{conn_scope}:{fp}:{role} 60 {rows}
+    G->>R: SADD argus:cache_tags:{conn_scope}:users {cache_key}
     R-->>G: ok
     G->>PGw: INSERT INTO audit_logs (...) (async, fire-and-forget)
     G->>R: INCR argus:metrics:requests_total
@@ -89,7 +89,7 @@ sequenceDiagram
     C->>G: POST /api/v1/query/execute {same sql, same role}
     G->>G: Auth + Security + Rate limit checks
     G->>G: Fingerprint query
-    G->>R: GET argus:cache:{fingerprint}:{role}
+    G->>R: GET argus:cache:{conn_scope}:{fingerprint}:{role}
     R-->>G: {rows} (2.1ms cache hit)
     G->>G: RBAC masking applied to cached rows
     G->>PGw: INSERT INTO audit_logs (async)

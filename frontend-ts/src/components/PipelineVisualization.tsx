@@ -5,8 +5,8 @@ import { Search, Code2, ShieldAlert, BadgeDollarSign, DatabaseZap, Play } from "
 interface PipelineVisualizationProps {
   currentStage: string; // 'question' | 'sql' | 'security' | 'cost' | 'cache' | 'execute' | 'done' | 'error'
   securityStatus: 'pending' | 'safe' | 'warning' | 'error';
-  costStatus: 'pending' | 'calculated';
-  cacheStatus: 'pending' | 'hit' | 'miss';
+  costStatus: 'pending' | 'calculated' | 'error';
+  cacheStatus: 'pending' | 'hit' | 'miss' | 'error';
 }
 
 const STAGES = [
@@ -28,7 +28,7 @@ export default function PipelineVisualization({ currentStage, securityStatus, co
   const currentIndex = getStageIndex(currentStage);
 
   return (
-    <div className="w-full py-4">
+    <div className="w-full pt-4 pb-3">
       <div className="flex items-center justify-between max-w-4xl mx-auto relative">
         {/* Connecting lines background */}
         <div className="absolute top-6 left-0 right-0 h-0.5 bg-surface-high/50 -z-10" />
@@ -75,7 +75,7 @@ export default function PipelineVisualization({ currentStage, securityStatus, co
                 </span>
                 
                 {/* Status sub-label */}
-                <div className="h-4 mt-1">
+                <div className="h-4 -mt-0.5">
                   <AnimatePresence mode="wait">
                     {step.id === 'security' && securityStatus === 'safe' && isCompleted && (
                       <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="text-[10px] font-mono text-primary-neon">SAFE</motion.span>

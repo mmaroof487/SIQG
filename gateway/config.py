@@ -20,13 +20,14 @@ SENSITIVE_FIELDS = {
 
 
 class Settings(BaseSettings):
-    model_config = ConfigDict(env_file=".env", case_sensitive=False)
+    model_config = ConfigDict(env_file=".env", case_sensitive=False, extra="ignore")
     """Application settings loaded from environment variables."""
 
     # === APP ===
     secret_key: str
     jwt_expiry_minutes: int = 60
     environment: str = "development"
+    allowed_origins: List[str] = ["http://localhost:5173", "http://localhost"]
 
     # === DATABASE ===
     db_primary_url: str

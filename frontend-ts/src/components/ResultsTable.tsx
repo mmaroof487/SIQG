@@ -59,8 +59,8 @@ export default function ResultsTable({ rows, columns, isLoading, error }: Result
 	};
 
 	return (
-		<div className="bg-surface/60 backdrop-blur-xl border border-surface-high rounded-2xl overflow-hidden shadow-lg">
-			<div className="overflow-x-auto">
+		<div className="h-full flex flex-col">
+			<div className="overflow-auto scrollbar-minimal flex-1">
 				<table className="w-full text-left border-collapse">
 					<thead>
 						<tr className="bg-surface-high/50 border-b border-surface-high">
@@ -86,7 +86,7 @@ export default function ResultsTable({ rows, columns, isLoading, error }: Result
 			</div>
 
 			{totalPages > 1 && (
-				<div className="flex items-center justify-between p-4 bg-surface-high/30 border-t border-surface-high">
+				<div className="flex items-center justify-between p-4 bg-surface-high/30 border-t border-surface-high mt-auto">
 					<div className="text-sm font-medium text-on-surface-variant">
 						Showing <span className="text-on-surface">{startIdx + 1}</span> to <span className="text-on-surface">{Math.min(endIdx, rows.length)}</span> of <span className="text-on-surface">{rows.length}</span> rows
 					</div>

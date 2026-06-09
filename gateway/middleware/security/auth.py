@@ -2,7 +2,7 @@
 import hashlib
 import hmac
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
@@ -23,8 +23,8 @@ def create_jwt(user_id: str, role: str) -> str:
     payload = {
         "sub": user_id,
         "role": role,
-        "exp": datetime.utcnow() + timedelta(minutes=settings.jwt_expiry_minutes),
-        "iat": datetime.utcnow(),
+        "exp": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=settings.jwt_expiry_minutes),
+        "iat": datetime.now(timezone.utc).replace(tzinfo=None),
     }
     return jwt.encode(payload, settings.secret_key, algorithm="HS256")
 
@@ -54,74 +54,7 @@ def hash_api_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
 
 
-def compute_hmac_signature(timestamp: str, method: str, path: str, body: str, api_key_secret: str) -> str:
-    """
-    Compute HMAC-SHA256 signature for request signing.
 
-    Args:
-        timestamp: Unix timestamp or ISO format timestamp
-        method: HTTP method (GET, POST, etc.)
-        path: Request path (e.g., /api/v1/query/execute)
-        body: Request body (JSON string, empty string if no body)
-        api_key_secret: API key secret for HMAC
-
-    Returns:
-        Hex-encoded HMAC-SHA256 signature
-    """
-    message = f"{timestamp}:{method}:{path}:{body}"
-    signature = hmac.new(
-        api_key_secret.encode(),
-        message.encode(),
-        hashlib.sha256
-    )
-    return signature.hexdigest()
-
-
-async def validate_hmac_signature(request: Request) -> bool:
-    """
-    Validate HMAC-SHA256 signature from request headers.
-
-    Checks:
-    1. X-Timestamp header exists and is not stale (< 30 seconds old)
-    2. X-Signature header matches computed signature
-    3. Uses secrets.compare_digest() for timing-attack-safe comparison
-
-    Returns:
-        True if valid, raises HTTPException otherwise
-    """
-    import secrets
-
-    timestamp = request.headers.get("X-Timestamp")
-    signature = request.headers.get("X-Signature")
-
-    if not timestamp or not signature:
-        # HMAC signing is optional; if no headers, skip validation
-        return True
-
-    # Check timestamp freshness (within 30 seconds)
-    try:
-        ts_float = float(timestamp)
-        current_time = time.time()
-        if abs(current_time - ts_float) > 30:
-            logger.warning(f"HMAC timestamp too old: {timestamp} vs {current_time}")
-            raise HTTPException(
-                status_code=401,
-                detail="HMAC signature timestamp is stale (must be within 30 seconds)"
-            )
-    except ValueError:
-        raise HTTPException(status_code=401, detail="Invalid X-Timestamp header")
-
-    # Get request body
-    try:
-        body = await request.body()
-        body_str = body.decode() if body else ""
-    except Exception:
-        body_str = ""
-
-    # Compute expected signature
-    # Note: For API key auth, we'd need the API key secret from DB
-    # For now, return True (signing is optional, enforced per-environment)
-    return True
 
 
 async def validate_api_key_scope(request: Request, query: str, extracted_tables: list[str]) -> None:
@@ -180,15 +113,22 @@ async def get_current_user(
     Tries JWT first, then API key (with cache + DB fallback).
     For API keys, also retrieves scoping restrictions (allowed tables, query types).
     """
-    # Try JWT Bearer token first
-    if credentials:
-        payload = decode_jwt(credentials.credentials)
-        request.state.user_id = payload["sub"]
-        request.state.role = payload["role"]
-        request.state.auth_type = "jwt"
-        # JWT doesn't have scoping restrictions
-        request.state.api_key_scope = None
-        return payload
+    # Try JWT Bearer token from cookie first, then Authorization header
+    token = request.cookies.get("token")
+    if not token and credentials:
+        token = credentials.credentials
+
+    if token:
+        try:
+            payload = decode_jwt(token)
+            request.state.user_id = payload["sub"]
+            request.state.role = payload["role"]
+            request.state.auth_type = "jwt"
+            # JWT doesn't have scoping restrictions
+            request.state.api_key_scope = None
+            return payload
+        except HTTPException:
+            pass
 
     # Try API key from X-API-Key header
     api_key = request.headers.get("X-API-Key")
@@ -271,3 +211,4 @@ async def get_current_user(
         status_code=401,
         detail="No credentials provided. Use 'Authorization: Bearer <token>' or 'X-API-Key: <key>'"
     )
+

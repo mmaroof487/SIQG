@@ -137,8 +137,9 @@ erDiagram
 
 | Key Pattern | Type | Purpose | TTL |
 |-------------|------|---------|-----|
-| `argus:cache:{fp}:{role}` | string | Query result cache | 60s (configurable) |
-| `argus:cache:tags:{table}` | set | Cache tag → fingerprints | TTL-based eviction |
+| `argus:cache:{conn_scope}:{fp}:{role}` | string | Query result cache | 60s (configurable) |
+| `argus:cache_tags:{conn_scope}:{table}` | set | Cache tag → fingerprints | TTL-based eviction |
+| `argus:intelligence:{conn_id}:{schema_hash}` | json | AI Schema Intelligence cache | 86400s (24h) |
 | `argus:ratelimit:{user_id}:{bucket}` | int | Per-role sliding window rate limit | 2× window (120s) |
 | `argus:ai_ratelimit:{user_id}:{bucket}` | int | AI-specific rate limit (20/min) | 2× window (120s) |
 | `argus:brute:{ip}:{username}` | int | Failed login counter | 15 min |

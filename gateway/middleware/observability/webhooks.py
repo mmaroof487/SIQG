@@ -1,6 +1,6 @@
 import httpx
 from config import settings
-from datetime import datetime
+from datetime import datetime, timezone
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -17,7 +17,7 @@ async def send_alert(event_type: str, trace_id: str, user_id: str, message: str,
             "fields": [
                 {"name": "Trace ID", "value": trace_id, "inline": True},
                 {"name": "User", "value": str(user_id), "inline": True},
-                {"name": "Time", "value": datetime.utcnow().isoformat(), "inline": True},
+                {"name": "Time", "value": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(), "inline": True},
             ] + ([{"name": k, "value": str(v), "inline": True} for k, v in extra.items()] if extra else []),
         }]
     }
@@ -38,3 +38,5 @@ def _color_for_event(event_type: str) -> int:
         "circuit_open": 0xFF4500,  # red-orange
     }
     return colors.get(event_type, 0x808080)
+
+

@@ -2,6 +2,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 import redis.asyncio as aioredis
 from config import settings
 from utils.db import init_db, close_db
@@ -57,11 +58,14 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change in production
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Trust proxy headers (e.g., X-Forwarded-For)
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 
 import time
@@ -79,7 +83,7 @@ async def health_check(request: Request):
         "redis": "ok",
         "circuit_breaker_state": "closed",
         "uptime_seconds": int(time.time() - START_TIME),
-        "last_check": datetime.now(timezone.utc).isoformat()
+        "last_check": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     }
     
     try:
@@ -142,3 +146,4 @@ logger.info("✅ Routers registered")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

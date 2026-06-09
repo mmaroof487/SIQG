@@ -5,7 +5,7 @@
 Complete flow of a request through ALL security, performance, execution, observability, and AI layers.
 
 **Scope:** This diagram shows the full pipeline for `/api/v1/query/execute`.  
-AI endpoints (`/ai/nl-to-sql`, `/ai/explain`, `/ai/insights`, `/ai/explain-anomaly`, `/ai/schema-chat`) have a separate guard pipeline shown at the bottom.
+AI endpoints (`/ai/nl-to-sql`, `/ai/explain`, `/ai/insights`, `/ai/explain-anomaly`, `/ai/schema-chat`, `/connections/{id}/intelligence`) have a separate guard pipeline shown at the bottom.
 
 ---
 
@@ -110,7 +110,7 @@ flowchart TD
 
 ## AI Endpoint Guard Pipeline
 
-All 5 AI endpoints (`/ai/nl-to-sql`, `/ai/explain`, `/ai/insights`, `/ai/explain-anomaly`, `/ai/schema-chat`) share this guard pipeline **before** calling the LLM:
+All AI endpoints (`/ai/nl-to-sql`, `/ai/explain`, `/ai/insights`, `/ai/explain-anomaly`, `/ai/schema-chat`, `/connections/{id}/intelligence`) share this guard pipeline **before** calling the LLM:
 
 ```mermaid
 flowchart TD

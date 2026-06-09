@@ -2,14 +2,14 @@
 from fastapi import Request, HTTPException
 from config import settings
 from utils.logger import get_logger
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 logger = get_logger(__name__)
 
 
 async def _budget_key(user_id: str) -> str:
     """Build daily budget key using UTC date."""
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
     return f"argus:budget:{user_id}:{today.isoformat()}"
 
 
@@ -17,7 +17,7 @@ async def _ensure_ttl(redis, budget_key: str):
     """Set TTL to midnight UTC if not already set."""
     ttl = await redis.ttl(budget_key)
     if ttl < 0:  # No TTL set yet (-1 no expiry, -2 key doesn't exist)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         tomorrow_midnight = (now + timedelta(days=1)).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
@@ -90,3 +90,5 @@ async def deduct_budget(request: Request, user_id: str, cost: float):
         f"Budget deducted: {user_id} cost {cost:.2f}, "
         f"total {new_usage:.2f} / {settings.daily_budget_default}"
     )
+
+

@@ -588,6 +588,58 @@ async def get_connection_schema(
             "fk": fk_ref
         })
 
+    # Collect all tables across all schemas for inference
+    all_tables = set()
+    for sch, tables_dict in schema_map.items():
+        for t_name in tables_dict.keys():
+            all_tables.add(t_name)
+            
+    # Heuristic inference pass
+    for sch_name, tables in schema_map.items():
+        for tbl_name, columns in tables.items():
+            for col in columns:
+                if col.get("fk") is not None:
+                    col["fk_inferred"] = False
+                    col["fk_confidence"] = 1.0
+                else:
+                    c_name = col["name"]
+                    inferred_fk = None
+                    confidence = 0.0
+                    
+                    # Strong Match: {table_singular}_id -> {table}.id
+                    if c_name.endswith("_id"):
+                        base = c_name[:-3]
+                        if base + "s" in all_tables:
+                            inferred_fk = f"{base}s.id"
+                            confidence = 0.95
+                        elif base in all_tables:
+                            inferred_fk = f"{base}.id"
+                            confidence = 0.95
+                    
+                    # Medium Match: common alias to users table
+                    if not inferred_fk and c_name in ["owner_id", "creator_id", "author_id", "owner", "creator"]:
+                        if "users" in all_tables:
+                            inferred_fk = "users.id"
+                            confidence = 0.80
+                            
+                    # Weak Match: {base}_code -> {base}s.code
+                    if not inferred_fk and c_name.endswith("_code"):
+                        base = c_name[:-5]
+                        if base + "s" in all_tables:
+                            inferred_fk = f"{base}s.code"
+                            confidence = 0.60
+                        elif base + "es" in all_tables:
+                            inferred_fk = f"{base}es.code"
+                            confidence = 0.60
+                            
+                    if inferred_fk:
+                        col["fk"] = inferred_fk
+                        col["fk_inferred"] = True
+                        col["fk_confidence"] = confidence
+                    else:
+                        col["fk_inferred"] = False
+                        col["fk_confidence"] = 1.0
+
     response_data = []
     for sch_name, tables in schema_map.items():
         tbl_list = []
@@ -608,3 +660,82 @@ async def get_connection_schema(
         logger.warning(f"Failed to cache schema for connection {connection_id}: {cache_err}")
 
     return response_data
+
+class IntelligenceRequest(BaseModel):
+    schema_json: str
+
+@router.post("/{connection_id}/intelligence")
+async def get_connection_intelligence(
+    connection_id: str,
+    payload: IntelligenceRequest,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """
+    Generate or retrieve AI intelligence for a given schema.
+    Uses schema_hash to cache the results so we don't call the LLM repeatedly
+    unless the schema actually changes.
+    """
+    import json
+    import hashlib
+    from routers.v1.ai import call_llm, SYSTEM_PROMPT_SCHEMA_INTELLIGENCE
+
+    # Verify ownership
+    async with PrimarySession() as session:
+        await _get_own_connection(session, connection_id, str(request.state.user_id))
+
+    redis_client = request.app.state.redis
+    schema_hash = hashlib.sha256(payload.schema_json.encode('utf-8')).hexdigest()
+    cache_key = f"argus:intelligence:{connection_id}:{schema_hash}"
+
+    try:
+        cached = await redis_client.get(cache_key)
+        if cached:
+            logger.info(f"Intelligence cache hit for {connection_id}")
+            return json.loads(cached)
+    except Exception as e:
+        logger.warning(f"Intelligence cache read failed: {e}")
+
+    logger.info(f"Intelligence cache miss for {connection_id}. Calling LLM...")
+    prompt = f"Analyze this schema:\n{payload.schema_json}"
+    result = await call_llm(SYSTEM_PROMPT_SCHEMA_INTELLIGENCE, prompt)
+    
+    if result.startswith("ERROR:"):
+        raise HTTPException(status_code=500, detail=result)
+
+    cleaned_result = result.replace("```json", "").replace("```", "").strip()
+    try:
+        parsed = json.loads(cleaned_result)
+        # Cache for 24 hours
+        await redis_client.setex(cache_key, 86400, json.dumps(parsed))
+        return parsed
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse intelligence JSON: {result}")
+        raise HTTPException(status_code=500, detail="Failed to generate schema intelligence JSON")
+
+@router.delete("/{connection_id}/hard", status_code=204)
+async def hard_delete_connection(
+    connection_id: str,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """
+    Hard-delete a connection.
+    Removes the row from the database completely.
+    """
+    user_id = request.state.user_id
+
+    async with PrimarySession() as session:
+        conn = await _get_own_connection(session, connection_id, str(user_id))
+        await session.delete(conn)
+        await session.commit()
+        logger.info(f"Connection {connection_id} hard-deleted by user {user_id}")
+
+    # Purge connection-scoped cache entries
+    try:
+        from utils.connection_manager import invalidate_connection_cache
+        await invalidate_connection_cache(request.app.state.redis, connection_id)
+        await request.app.state.redis.delete(f"schema:{connection_id}")
+    except Exception as cache_err:
+        logger.warning(f"Cache purge failed for deleted connection {connection_id}: {cache_err}")
+

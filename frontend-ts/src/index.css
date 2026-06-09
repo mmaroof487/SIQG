@@ -29,4 +29,23 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+  
+  .scrollbar-minimal::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-minimal::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-minimal::-webkit-scrollbar-thumb {
+    background-color: #000000;
+    border-radius: 10px;
+  }
+  .scrollbar-minimal::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  .scrollbar-minimal {
+    scrollbar-width: thin;
+    scrollbar-color: #000000 transparent;
+  }
 }

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from fastapi.responses import StreamingResponse
 import csv
 import io
-from datetime import datetime
+from datetime import datetime, timezone
 
 from middleware.security.auth import get_current_user
 from middleware.observability.heatmap import get_heatmap
@@ -26,10 +26,81 @@ def require_admin(user=Depends(get_current_user)):
     return user
 
 
+# === USER MANAGEMENT ===
+
+@router.get("/users")
+async def get_users(admin=Depends(require_admin)):
+    """List all registered users."""
+    from models import User
+    async with PrimarySession() as session:
+        result = await session.execute(select(User).order_by(User.created_at.desc()))
+        users = result.scalars().all()
+        return {
+            "users": [
+                {
+                    "id": str(u.id),
+                    "username": u.username,
+                    "email": u.email,
+                    "role": u.role,
+                    "is_active": u.is_active,
+                    "created_at": u.created_at.isoformat(),
+                }
+                for u in users
+            ]
+        }
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str, admin=Depends(require_admin)):
+    """Delete a user."""
+    from models import User
+    async with PrimarySession() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        user = result.scalars().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        await session.delete(user)
+        await session.commit()
+        return {"ok": True, "message": "User deleted"}
+
+
 class IPRuleRequest(BaseModel):
     ip_address: str
     rule_type: str  # "allow" or "block"
     description: Optional[str] = None
+
+
+@router.get("/ip-rules")
+async def get_ip_rules(request: Request, admin=Depends(require_admin)):
+    """List all IP allow/blocklist rules."""
+    redis = request.app.state.redis
+    
+    allowlist = await redis.smembers("argus:ip:allowlist")
+    
+    cursor = 0
+    blocklist_keys = []
+    while True:
+        cursor, keys = await redis.scan(cursor, match="argus:ip:blocklist:*", count=100)
+        blocklist_keys.extend(keys)
+        if cursor == 0:
+            break
+            
+    blocklist = set()
+    for key in blocklist_keys:
+        ip = key.split(":")[-1]
+        blocklist.add(ip)
+    
+    legacy_blocklist = await redis.smembers("argus:ip:blocklist")
+    if legacy_blocklist:
+        blocklist.update(legacy_blocklist)
+        
+    rules = []
+    for ip in allowlist:
+        rules.append({"ip_address": ip, "rule_type": "allow"})
+    for ip in blocklist:
+        rules.append({"ip_address": ip, "rule_type": "block"})
+        
+    return rules
 
 
 @router.post("/ip-rules")
@@ -87,10 +158,12 @@ async def audit_log(
     status: str = None,
 ):
     safe_limit = max(1, min(limit, 200))
+    safe_offset = max(0, min(offset, 1_000_000))
     async with PrimarySession() as session:
-        stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).offset(offset).limit(safe_limit)
+        stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
         if status:
             stmt = stmt.where(AuditLog.status == status)
+        stmt = stmt.offset(safe_offset).limit(safe_limit)
         result = await session.execute(stmt)
         rows = result.scalars().all()
 
@@ -198,10 +271,17 @@ async def get_slow_queries(limit: int = 50, admin=Depends(require_admin)):
 @router.get("/budget")
 async def budget_usage(request: Request, user=Depends(require_admin)):
     redis = request.app.state.redis
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).replace(tzinfo=None).date().isoformat()
     # Scan for keys matching argus:budget:*:{today}
     pattern = f"argus:budget:*:*{today}*"
-    keys = await redis.keys(pattern)
+    
+    cursor = 0
+    keys = []
+    while True:
+        cursor, _keys = await redis.scan(cursor, match=pattern, count=100)
+        keys.extend(_keys)
+        if cursor == 0:
+            break
 
     if not keys:
         return {"users": []}
@@ -357,19 +437,19 @@ async def get_compliance_report(
     else:  # 'y'
         delta = timedelta(days=amount * 365)
 
-    cutoff = datetime.utcnow() - delta
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - delta
 
     # Aggregate audit data
     async with PrimarySession() as session:
         # Count successful/error queries
-        from sqlalchemy import func, and_
+        from sqlalchemy import func, and_, Integer, Float
 
         audit_count_stmt = select(
             func.count(AuditLog.id).label("total"),
             func.sum(
                 func.cast(
-                    AuditLog.status_code.in_([200, 201]),
-                    __import__('sqlalchemy').Integer
+                    AuditLog.status.in_(["success", "cached"]),
+                    Integer
                 )
             ).label("successful"),
         ).where(AuditLog.created_at >= cutoff)
@@ -387,7 +467,7 @@ async def get_compliance_report(
         # Calculate average latency
         avg_latency_stmt = select(
             func.avg(
-                func.cast(AuditLog.latency_ms, __import__('sqlalchemy').Float)
+                func.cast(AuditLog.latency_ms, Float)
             )
         ).where(AuditLog.created_at >= cutoff)
 
@@ -400,7 +480,7 @@ async def get_compliance_report(
 
     report = {
         "period": period,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
         "audit_summary": {
             "total_queries": total_queries,
             "successful": successful_queries,
@@ -466,3 +546,5 @@ async def get_rbac_policies(admin=Depends(require_admin)):
         })
         
     return policies
+
+

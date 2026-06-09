@@ -5,30 +5,39 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# SQL injection patterns (regex-based detection) — 13 patterns
+# SQL injection patterns (regex-based detection)
 INJECTION_PATTERNS = [
     r"(?i)(\bOR\b\s+\d+\s*=\s*\d+)",  # OR 1=1
     r"(?i)(\bOR\b\s+'[^']*'\s*=\s*'[^']*')",  # OR 'a'='a'
-    r"(?i)(UNION\s+SELECT)",  # UNION SELECT
+    r"(?i)(UNION\s+(ALL\s+)?SELECT)",  # UNION SELECT / UNION ALL SELECT
     r"(?i)(EXEC\s*\()",  # EXEC
     r"(?i)(EXECUTE\s*\()",  # EXECUTE
-    r"(?i)(;\s*DROP)",  # ; DROP
-    r"(?i)(/\*.*\*/)",  # /* */ comments
-    r"(?i)(--\s*)",  # -- comments
+    r"(?i)(;\s*(?:DROP|ALTER|COPY|TRUNCATE|DELETE|GRANT|REVOKE|UPDATE))",  # Stacked dangerous
     r"(?i)(\bSLEEP\s*\()",  # Time-based blind: SLEEP()
     r"(?i)(\bWAITFOR\s+DELAY\b)",  # Time-based blind: WAITFOR DELAY
     r"(?i)(\bBENCHMARK\s*\()",  # Time-based blind: BENCHMARK()
     r"(?i)(;\s*SELECT)",  # Stacked queries: ;SELECT
+    r"(?i)(\binformation_schema\b)",  # System tables
+    r"(?i)(\bpg_catalog\b)",  # System tables
+    r"(?i)(\bCOPY\b\s+)", # COPY command
 ]
 
 # Dangerous query types
-DANGEROUS_QUERY_TYPES = {"DROP", "DELETE", "TRUNCATE", "ALTER"}
+DANGEROUS_QUERY_TYPES = {"DROP", "DELETE", "TRUNCATE", "ALTER", "COPY", "GRANT", "REVOKE", "UPDATE"}
 
 
 def detect_sql_injection(query: str) -> bool:
-    """Detect common SQL injection patterns."""
+    """Detect common SQL injection patterns using sqlparse and regex."""
+    try:
+        import sqlparse
+        # Strip comments using a proper parser to avoid false positives inside strings
+        clean_query = sqlparse.format(query, strip_comments=True)
+    except ImportError:
+        logger.warning("sqlparse not installed, falling back to raw query")
+        clean_query = query
+
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, query):
+        if re.search(pattern, clean_query):
             logger.warning(f"SQL injection detected: {query[:100]}")
             return True
     return False

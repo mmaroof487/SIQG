@@ -58,8 +58,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD:-secure-redis-pass}
+    environment:
+      - REDISCLI_AUTH=${REDIS_PASSWORD:-secure-redis-pass}
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

@@ -72,10 +72,12 @@ export default function LoginPage() {
     try {
       if (isRegistering) {
         const res = await api.register(username, email, password);
-        localStorage.setItem('token', res.data.access_token);
+        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('role', res.data.role);
       } else {
         const res = await api.login(username, password);
-        localStorage.setItem('token', res.data.access_token);
+        localStorage.setItem('isAuthenticated', 'true');
+        localStorage.setItem('role', res.data.role);
       }
       // Use React Router navigate instead of hard page reload
       navigate('/dashboard', { replace: true });

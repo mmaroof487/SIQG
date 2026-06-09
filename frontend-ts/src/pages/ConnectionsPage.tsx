@@ -15,24 +15,14 @@ interface ColumnEncryptionConfig {
   created_at: string;
 }
 
-// Added mock intelligence metadata to the frontend representation
-interface Connection {
+export interface Connection {
   id: string;
   display_name: string;
   db_type: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  column_encryption_configs?: ColumnEncryptionConfig[];
-  
-  // MOCK INTELLIGENCE DATA
-  _mockHealth?: "Healthy" | "Degraded" | "Offline" | "Never Tested";
-  _mockTables?: number;
-  _mockColumns?: number;
-  _mockRelationships?: number;
-  _mockLastQueried?: string;
-  _mockMostUsedTable?: string;
-  _mockSummary?: string;
+  column_encryption_configs: ColumnEncryptionConfig[];
 }
 
 export default function ConnectionsPage() {
@@ -68,30 +58,13 @@ export default function ConnectionsPage() {
     fetchConnections();
   }, []);
 
-  const generateMockIntelligence = (conn: any): Connection => {
-    const isOffline = !conn.is_active;
-    const tables = Math.floor(Math.random() * 50) + 5;
-    const columns = tables * (Math.floor(Math.random() * 8) + 4);
-    const relationships = Math.floor(tables * 0.8);
-    
-    return {
-      ...conn,
-      _mockHealth: isOffline ? "Offline" : Math.random() > 0.8 ? "Degraded" : "Healthy",
-      _mockTables: tables,
-      _mockColumns: columns,
-      _mockRelationships: relationships,
-      _mockLastQueried: isOffline ? "Never" : `${Math.floor(Math.random() * 60) + 1} mins ago`,
-      _mockMostUsedTable: ["users", "orders", "events", "logs", "products"][Math.floor(Math.random() * 5)],
-      _mockSummary: `${conn.display_name} appears to be a core application database. We detected ${tables} primary tables with strong relational integrity. The schema suggests it handles ${["e-commerce", "user management", "telemetry", "financial", "logistics"][Math.floor(Math.random() * 5)]} workloads.`
-    };
-  };
-
   const fetchConnections = async () => {
     setIsLoading(true);
     setError("");
     try {
       const res = await api.getConnections();
-      setConnections(res.data.map(generateMockIntelligence));
+      setConnections(res.data);
+      window.dispatchEvent(new Event('connectionsUpdated'));
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to load connections.");
     } finally {
@@ -126,32 +99,45 @@ export default function ConnectionsPage() {
       const res = await api.testConnection(id);
       if (res.data.ok) {
         setTestStates(prev => ({ ...prev, [id]: { ok: true, loading: false } }));
-        setConnections(prev => prev.map(c => c.id === id ? { ...c, _mockHealth: "Healthy" } : c));
+        // Connection is healthy
       } else {
         setTestStates(prev => ({ ...prev, [id]: { ok: false, error: res.data.error || "Connection failed", loading: false } }));
-        setConnections(prev => prev.map(c => c.id === id ? { ...c, _mockHealth: "Offline" } : c));
       }
     } catch (err: any) {
       setTestStates(prev => ({ 
         ...prev, 
         [id]: { ok: false, error: err.response?.data?.detail || "Network error during test", loading: false } 
       }));
-      setConnections(prev => prev.map(c => c.id === id ? { ...c, _mockHealth: "Offline" } : c));
     }
   };
 
   const handleDeleteConnection = async (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this connection? The configurations will be deactivated.")) {
+    if (!window.confirm("Are you sure you want to deactivate this connection?")) {
       return;
     }
     setError("");
     setSuccess("");
     try {
       await api.deleteConnection(id);
-      setSuccess("Connection soft-deleted successfully.");
+      setSuccess("Connection deactivated successfully.");
       fetchConnections();
     } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to delete connection.");
+      setError(err.response?.data?.detail || "Failed to deactivate connection.");
+    }
+  };
+
+  const handleHardDeleteConnection = async (id: string) => {
+    if (!window.confirm("Are you sure you want to completely remove this connection? This action cannot be undone.")) {
+      return;
+    }
+    setError("");
+    setSuccess("");
+    try {
+      await api.hardDeleteConnection(id);
+      setSuccess("Connection permanently removed.");
+      fetchConnections();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Failed to remove connection.");
     }
   };
 
@@ -159,13 +145,13 @@ export default function ConnectionsPage() {
     setExpandedConfigs(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const healthyCount = connections.filter(c => c._mockHealth === "Healthy").length;
-  const offlineCount = connections.filter(c => c._mockHealth === "Offline" || c._mockHealth === "Degraded").length;
+  const healthyCount = connections.filter(c => c.is_active).length;
+  const offlineCount = connections.filter(c => !c.is_active).length;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-16">
       {/* Top Section */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-12">
         <div className="flex items-end gap-6">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-neon/20 to-primary-container/5 border border-primary-neon/30 flex items-center justify-center shadow-[0_0_20px_rgba(0,255,157,0.15)] backdrop-blur-xl">
             <Network className="w-8 h-8 text-primary-neon drop-shadow-[0_0_8px_#00FF9D]" />
@@ -376,36 +362,19 @@ export default function ConnectionsPage() {
                 <div className="grid grid-cols-3 gap-4 w-full mt-4">
                   <div className="p-4 bg-surface border border-surface-high rounded-xl">
                     <LayoutTemplate className="w-5 h-5 text-primary-neon mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-on-surface">{Math.floor(Math.random() * 50) + 10}</div>
+                    <div className="text-2xl font-bold text-on-surface">--</div>
                     <div className="text-xs text-on-surface-variant uppercase tracking-wider font-bold">Tables Found</div>
                   </div>
                   <div className="p-4 bg-surface border border-surface-high rounded-xl">
                     <Server className="w-5 h-5 text-primary-container mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-on-surface">{Math.floor(Math.random() * 300) + 50}</div>
+                    <div className="text-2xl font-bold text-on-surface">--</div>
                     <div className="text-xs text-on-surface-variant uppercase tracking-wider font-bold">Columns Found</div>
                   </div>
                   <div className="p-4 bg-surface border border-surface-high rounded-xl">
                     <Network className="w-5 h-5 text-secondary-teal mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-on-surface">{Math.floor(Math.random() * 20) + 5}</div>
+                    <div className="text-2xl font-bold text-on-surface">--</div>
                     <div className="text-xs text-on-surface-variant uppercase tracking-wider font-bold">Relationships</div>
                   </div>
-                </div>
-
-                <div className="w-full text-left bg-surface-high/30 p-6 rounded-xl border border-surface-high mt-4">
-                  <h4 className="text-sm font-bold text-on-surface mb-3 flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-primary-neon" /> Suggested Questions
-                  </h4>
-                  <ul className="space-y-2">
-                    <li className="text-sm text-on-surface-variant flex items-center gap-2 hover:text-primary-neon transition-colors cursor-pointer bg-surface p-2 rounded-lg border border-transparent hover:border-primary-neon/30">
-                      <Search className="w-3 h-3" /> Show me the active users from the last 30 days
-                    </li>
-                    <li className="text-sm text-on-surface-variant flex items-center gap-2 hover:text-primary-neon transition-colors cursor-pointer bg-surface p-2 rounded-lg border border-transparent hover:border-primary-neon/30">
-                      <Search className="w-3 h-3" /> Find records with missing email addresses
-                    </li>
-                    <li className="text-sm text-on-surface-variant flex items-center gap-2 hover:text-primary-neon transition-colors cursor-pointer bg-surface p-2 rounded-lg border border-transparent hover:border-primary-neon/30">
-                      <Search className="w-3 h-3" /> Count rows grouped by status
-                    </li>
-                  </ul>
                 </div>
               </div>
             )}
@@ -493,24 +462,11 @@ export default function ConnectionsPage() {
               {connections.map((conn) => {
                 const testState = testStates[conn.id];
                 const isExpanded = !!expandedConfigs[conn.id];
-                const isHealthy = conn._mockHealth === "Healthy";
-                const isDegraded = conn._mockHealth === "Degraded";
+                const isHealthy = conn.is_active;
                 
                 return (
                   <div key={conn.id} className="group relative bg-surface/40 border border-surface-high rounded-2xl flex flex-col hover:border-primary-neon/50 transition-all duration-300 hover:shadow-[0_8px_30px_rgba(0,0,0,0.12)] hover:-translate-y-1 overflow-visible">
                     
-                    {/* Hover AI Summary Tooltip (Visible on group-hover) */}
-                    <div className="absolute bottom-full left-0 mb-4 w-full bg-surface-high/95 backdrop-blur-xl border border-primary-neon/30 p-4 rounded-xl shadow-2xl opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 pointer-events-none z-50">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Sparkles className="w-4 h-4 text-primary-neon" />
-                        <span className="text-xs font-bold uppercase tracking-wider text-primary-neon">AI Summary</span>
-                      </div>
-                      <p className="text-sm text-on-surface-variant leading-relaxed">
-                        {conn._mockSummary}
-                      </p>
-                      <div className="absolute -bottom-2 left-8 w-4 h-4 bg-surface-high/95 border-b border-r border-primary-neon/30 transform rotate-45"></div>
-                    </div>
-
                     {/* Card Header */}
                     <div className="p-5 border-b border-surface-high">
                       <div className="flex justify-between items-start mb-4">
@@ -524,30 +480,34 @@ export default function ConnectionsPage() {
                           </div>
                         </div>
                         
-                        {/* Health Badge */}
-                        <div className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border ${
-                          isHealthy ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20" :
-                          isDegraded ? "bg-amber-400/10 text-amber-400 border-amber-400/20" :
-                          "bg-rose-400/10 text-rose-400 border-rose-400/20"
-                        }`}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${isHealthy ? 'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.8)]' : isDegraded ? 'bg-amber-400' : 'bg-rose-400'}`} />
-                          {conn._mockHealth}
-                        </div>
-                      </div>
-
-                      {/* Stats Grid */}
-                      <div className="grid grid-cols-3 gap-2 mt-5">
-                        <div className="bg-surface p-2.5 rounded-xl border border-surface-high/50 text-center">
-                          <div className="text-lg font-bold text-on-surface mb-0.5">{conn._mockTables}</div>
-                          <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider">Tables</div>
-                        </div>
-                        <div className="bg-surface p-2.5 rounded-xl border border-surface-high/50 text-center">
-                          <div className="text-lg font-bold text-on-surface mb-0.5">{conn._mockColumns}</div>
-                          <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider">Columns</div>
-                        </div>
-                        <div className="bg-surface p-2.5 rounded-xl border border-surface-high/50 text-center">
-                          <div className="text-lg font-bold text-on-surface mb-0.5">{conn._mockRelationships}</div>
-                          <div className="text-[10px] uppercase font-bold text-on-surface-variant tracking-wider">Rels</div>
+                        <div className="flex items-center gap-2">
+                          {/* Status Badge */}
+                          <div className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border ${
+                            isHealthy ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/20" :
+                            "bg-rose-400/10 text-rose-400 border-rose-400/20"
+                          }`}>
+                            <div className={`w-1.5 h-1.5 rounded-full ${isHealthy ? 'bg-emerald-400 shadow-[0_0_5px_rgba(52,211,153,0.8)]' : 'bg-rose-400'}`} />
+                            {isHealthy ? "Active" : "Inactive"}
+                          </div>
+                          
+                          {/* Delete Button */}
+                          {isHealthy ? (
+                            <button
+                              onClick={() => handleDeleteConnection(conn.id)}
+                              className="p-1.5 text-on-surface-variant hover:text-amber-400 hover:bg-amber-400/10 rounded-lg transition-all"
+                              title="Deactivate Connection"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleHardDeleteConnection(conn.id)}
+                              className="p-1.5 text-on-surface-variant hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-all"
+                              title="Permanently Remove Connection"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -556,11 +516,11 @@ export default function ConnectionsPage() {
                     <div className="px-5 py-3 bg-surface/20 flex justify-between items-center text-xs border-b border-surface-high">
                       <div className="flex items-center gap-2 text-on-surface-variant">
                         <Activity className="w-3.5 h-3.5" />
-                        <span className="font-medium text-on-surface">Top: <span className="font-mono text-primary-neon">{conn._mockMostUsedTable}</span></span>
+                        <span className="font-medium text-on-surface">Updated: <span className="font-mono text-primary-neon">{new Date(conn.updated_at).toLocaleDateString()}</span></span>
                       </div>
                       <div className="flex items-center gap-1 text-on-surface-variant opacity-80">
                         <Clock className="w-3 h-3" />
-                        {conn._mockLastQueried}
+                        Added {new Date(conn.created_at).toLocaleDateString()}
                       </div>
                     </div>
 
@@ -604,13 +564,6 @@ export default function ConnectionsPage() {
                             <Shield className="w-4 h-4 text-primary-neon" />
                             <h4 className="text-xs uppercase font-bold tracking-wider text-on-surface">Security Policies</h4>
                           </div>
-                          <button
-                            onClick={() => handleDeleteConnection(conn.id)}
-                            className="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded-lg transition-all"
-                            title="Delete Connection"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
                         </div>
                         
                         {!conn.column_encryption_configs || conn.column_encryption_configs.length === 0 ? (

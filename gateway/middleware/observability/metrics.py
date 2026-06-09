@@ -21,6 +21,8 @@ async def get_live_metrics(redis) -> dict:
         "argus:metrics:rate_limit_hits",
         "argus:metrics:slow_queries",
         "argus:metrics:errors",
+        "argus:metrics:entries_cached",
+        "argus:metrics:entries_invalidated",
     ]
     values = await redis.mget(*keys)
     metrics = {k.split(":")[-1]: float(v or 0) for k, v in zip(keys, values)}
@@ -43,5 +45,13 @@ async def get_live_metrics(redis) -> dict:
     misses = metrics.get("cache_misses", 0)
     total = hits + misses
     metrics["cache_hit_ratio"] = round(hits / total * 100, 1) if total > 0 else 0
+    metrics["cache_miss_ratio"] = round(misses / total * 100, 1) if total > 0 else 0
+    
+    # Average Invalidation Latency
+    invalidation_samples = await redis.lrange("argus:metrics:invalidation_latency_samples", 0, -1)
+    if invalidation_samples:
+        metrics["avg_invalidation_ms"] = round(sum(float(s) for s in invalidation_samples) / len(invalidation_samples), 1)
+    else:
+        metrics["avg_invalidation_ms"] = 0
 
     return metrics

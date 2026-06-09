@@ -65,7 +65,8 @@ graph TB
 
         subgraph MULTI_DB["🔵 Multi-DB Workbench (NEW)"]
             CONN_MGR["Connection Manager\n✅ Register external PostgreSQL DBs\n✅ Conn string encrypted at rest\n✅ Ownership enforced (user_id FK)\n✅ Test connectivity on register"]
-            SCHEMA_EXPLR["Schema Explorer\nTables, columns, types, indexes\nRow count estimation"]
+            SCHEMA_EXPLR["Schema Explorer\nTables, columns, types, indexes\n✅ Frontend BFS Join Paths\n✅ AI Join Recommendations\n✅ Ctrl+K Deep Search"]
+            SCHEMA_INTEL["Schema Intelligence\n✅ Heuristic FK Inference\n✅ AI DB Summaries (Domain, Entities)\n✅ Schema Hash Caching"]
         end
 
         subgraph OBS["🔵 Observability Layer"]
@@ -178,7 +179,7 @@ graph TB
 | Auth Layer | `POST /auth/login`, `POST /auth/register`, `POST /auth/refresh` |
 | Query Execution | `POST /query/execute`, `POST /query/dry-run`, `GET /query/budget`, `GET /query/history` |
 | AI (all guarded) | `POST /ai/nl-to-sql`, `/ai/explain`, `/ai/insights`, `/ai/explain-anomaly`, `/ai/schema-chat` |
-| Multi-DB | `GET/POST/DELETE /connections`, `POST /connections/{id}/test`, `GET /connections/{id}/schema` |
+| Multi-DB | `GET/POST/DELETE /connections`, `POST /connections/{id}/test`, `GET /connections/{id}/schema`, `POST /connections/{id}/intelligence` |
 | Observability | `GET /metrics/live`, `GET /metrics/heatmap` |
 | Admin | `GET /admin/audit`, `/admin/slow-queries`, `/admin/ip-rules`, `/admin/users`, `/admin/whitelist`, `/admin/compliance-report` |
 | System | `GET /health`, `GET /api/v1/status` |

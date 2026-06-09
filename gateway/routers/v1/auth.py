@@ -1,6 +1,6 @@
 """Authentication router - Login and token generation."""
 import re
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from middleware.security.auth import (
@@ -16,6 +16,7 @@ from middleware.security.brute_force import (
 from models import User, Role
 from utils.db import PrimarySession
 from utils.logger import get_logger
+from config import settings
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
 logger = get_logger(__name__)
@@ -85,7 +86,7 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: Request, credentials: LoginRequest):
+async def login(request: Request, response: Response, credentials: LoginRequest):
     """
     Login with username/password and get JWT token.
     """
@@ -125,6 +126,15 @@ async def login(request: Request, credentials: LoginRequest):
 
     logger.info(f"Login successful: {credentials.username} (role={role_value})")
 
+    response.set_cookie(
+        key="token",
+        value=token,
+        httponly=True,
+        samesite="lax",  # or strict, but lax is safer for cross-origin local dev
+        secure=True,
+        max_age=settings.jwt_expiry_minutes * 60,
+    )
+
     return TokenResponse(
         access_token=token,
         role=role_value,
@@ -132,7 +142,7 @@ async def login(request: Request, credentials: LoginRequest):
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(request: Request, data: RegisterRequest):
+async def register(request: Request, response: Response, data: RegisterRequest):
     """
     Register a new user (creates as 'readonly' by default).
     Pydantic validators on RegisterRequest enforce username/email/password rules.
@@ -171,6 +181,15 @@ async def register(request: Request, data: RegisterRequest):
             token = create_jwt(str(user.id), role_value)
             logger.info(f"New user registered: {data.username} (role={role_value})")
 
+            response.set_cookie(
+                key="token",
+                value=token,
+                httponly=True,
+                samesite="lax",
+                secure=True,
+                max_age=settings.jwt_expiry_minutes * 60,
+            )
+
             return TokenResponse(
                 access_token=token,
                 role=role_value,
@@ -187,7 +206,7 @@ _REFRESH_GRACE_SECONDS = 300  # 5 minutes
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(request: Request):
+async def refresh_token(request: Request, response: Response):
     """
     Renew an existing JWT token.
 
@@ -197,14 +216,15 @@ async def refresh_token(request: Request):
     from jose import jwt as jose_jwt, JWTError
     from config import settings as _settings
 
-    # Extract token from Authorization header
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-
-    token = auth_header[len("Bearer "):].strip()
+    # Extract token from cookie or Authorization header
+    token = request.cookies.get("token")
     if not token:
-        raise HTTPException(status_code=401, detail="Empty token")
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[len("Bearer "):].strip()
+            
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing or invalid token")
 
     # Decode token without expiry enforcement so we can check the grace window
     try:
@@ -259,7 +279,21 @@ async def refresh_token(request: Request):
     new_token = create_jwt(str(user.id), role_value)
     logger.info(f"Token refreshed for: {user.username} (role={role_value})")
 
+    response.set_cookie(
+        key="token",
+        value=new_token,
+        httponly=True,
+        samesite="lax",
+        secure=True,
+        max_age=_settings.jwt_expiry_minutes * 60,
+    )
+
     return TokenResponse(
         access_token=new_token,
         role=role_value,
     )
+
+@router.post("/logout")
+async def logout(response: Response):
+    response.delete_cookie("token", httponly=True, samesite="lax", secure=True)
+    return {"ok": True}

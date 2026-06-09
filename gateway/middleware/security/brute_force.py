@@ -17,6 +17,20 @@ async def check_brute_force(request: Request, username: str):
     count = await redis.get(key)
     count = int(count) if count else 0
 
+    global_key = f"argus:brute:user:{username}"
+    global_count = await redis.get(global_key)
+    global_count = int(global_count) if global_count else 0
+
+    if global_count >= 20:
+        ttl = await redis.ttl(global_key)
+        logger.warning(
+            f"Global brute force lockout: {username}, TTL={ttl}s"
+        )
+        raise HTTPException(
+            status_code=423,
+            detail=f"Account locked due to too many failed attempts globally. Try again in {ttl} seconds."
+        )
+
     if count >= settings.brute_force_max_attempts:
         ttl = await redis.ttl(key)
         logger.warning(
@@ -38,8 +52,13 @@ async def record_failed_attempt(request: Request, username: str):
     if count == 1:
         await redis.expire(key, ttl)
 
+    global_key = f"argus:brute:user:{username}"
+    global_count = await redis.incr(global_key)
+    if global_count == 1:
+        await redis.expire(global_key, ttl)
+
     logger.warning(
-        f"Failed auth attempt: {username} from {request.client.host} (attempt {count})"
+        f"Failed auth attempt: {username} from {request.client.host} (attempt {count}, global {global_count})"
     )
 
 
@@ -47,4 +66,6 @@ async def record_successful_attempt(request: Request, username: str):
     """Clear failed attempts on successful auth."""
     redis = request.app.state.redis
     key = f"argus:brute:{request.client.host}:{username}"
+    global_key = f"argus:brute:user:{username}"
     await redis.delete(key)
+    await redis.delete(global_key)
