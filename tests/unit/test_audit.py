@@ -16,7 +16,9 @@ async def test_write_audit_log_is_fire_and_forget(mock_session_cls):
     from middleware.observability.audit import write_audit_log
 
     # Mock PrimarySession so the background task completes quickly
-    mock_session = AsyncMock()
+    from unittest.mock import MagicMock
+    mock_session = MagicMock()
+    # db.add is synchronous, so MagicMock is perfect
     mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
 
@@ -45,9 +47,10 @@ async def test_write_audit_log_is_fire_and_forget(mock_session_cls):
 @patch("middleware.observability.audit.PrimarySession")
 async def test_get_audit_logs(mock_session_cls):
     """Get audit logs should query the DB and return formatted list."""
-    mock_session = AsyncMock()
-    from unittest.mock import MagicMock
+    from unittest.mock import MagicMock, AsyncMock
+    mock_session = MagicMock()
     mock_result = MagicMock()
+    mock_session.execute = AsyncMock(return_value=mock_result)
 
     # Mocking a returned row
     class MockRow:
@@ -68,7 +71,6 @@ async def test_get_audit_logs(mock_session_cls):
         created_at = None
 
     mock_result.scalars.return_value.all.return_value = [MockRow()]
-    mock_session.execute.return_value = mock_result
     mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
 
@@ -86,10 +88,11 @@ async def test_get_audit_logs(mock_session_cls):
 @patch("middleware.observability.audit.PrimarySession")
 async def test_get_audit_logs_with_user_filter(mock_session_cls):
     """Get audit logs should apply user_id filter."""
-    mock_session = AsyncMock()
+    from unittest.mock import MagicMock
+    mock_session = MagicMock()
     mock_result = AsyncMock()
     mock_result.scalars.return_value.all.return_value = []
-    mock_session.execute.return_value = mock_result
+    mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
 

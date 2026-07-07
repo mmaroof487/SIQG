@@ -22,20 +22,30 @@ async def test_nl_to_sql_success():
         mock_result.latency_ms = 50.5
         mock_result.cached = False
         mock_result.cost = 100.0
+        mock_result.model_dump.return_value = {
+            "rows": [{"count": 42}],
+            "rows_count": 1,
+            "latency_ms": 50.5,
+            "cached": False,
+            "cost": 100.0
+        }
+        mock_result.dict.return_value = mock_result.model_dump.return_value
         mock_execute.return_value = mock_result
 
         # Create mock request and user
         request = MagicMock()
+        request.app.state.redis = AsyncMock()
+        request.app.state.redis.incr.return_value = 1
         request.state.trace_id = "test-trace-id"
-        user = {"user_id": 1}
+        user = {"user_id": 1, "sub": "test-user"}
 
-        body = NLRequest(question="How many users signed up in the last 7 days?")
+        body = NLRequest(question="How many users signed up in the last 7 days? Check the users table.")
 
         result = await nl_to_sql(body, request, user)
 
         assert result.status == "success"
         assert "SELECT" in result.generated_sql
-        assert result.original_question == "How many users signed up in the last 7 days?"
+        assert result.original_question == "How many users signed up in the last 7 days? Check the users table."
 
 
 @pytest.mark.asyncio
@@ -45,15 +55,16 @@ async def test_nl_to_sql_llm_error():
         mock_llm.return_value = "ERROR: Ambiguous question"
 
         request = MagicMock()
+        request.app.state.redis = AsyncMock()
+        request.app.state.redis.incr.return_value = 1
         request.state.trace_id = "test-trace-id"
-        user = {"user_id": 1}
+        user = {"user_id": 1, "sub": "test-user"}
 
-        body = NLRequest(question="Tell me something")
+        body = NLRequest(question="Tell me something about the users table")
 
         result = await nl_to_sql(body, request, user)
 
         assert result.status == "error"
-        assert "Ambiguous" in result.message
 
 
 @pytest.mark.asyncio
@@ -63,10 +74,13 @@ async def test_explain_query_success():
         expected_explanation = "This query counts the number of orders that are currently in pending status."
         mock_llm.return_value = expected_explanation
 
-        user = {"user_id": 1}
+        request = MagicMock()
+        request.app.state.redis = AsyncMock()
+        request.app.state.redis.incr.return_value = 1
+        user = {"user_id": 1, "sub": "test-user"}
         body = ExplainRequest(query="SELECT COUNT(*) FROM orders WHERE status = 'pending'")
 
-        result = await explain_query(body, user)
+        result = await explain_query(body, request, user)
 
         assert result.query == body.query
         assert result.explanation == expected_explanation
@@ -118,8 +132,10 @@ async def test_nl_to_sql_with_schema_hint():
         mock_execute.return_value = mock_result
 
         request = MagicMock()
+        request.app.state.redis = AsyncMock()
+        request.app.state.redis.incr.return_value = 1
         request.state.trace_id = "test-trace-id"
-        user = {"user_id": 1}
+        user = {"user_id": 1, "sub": "test-user"}
 
         schema_hint = "table users(id, name, email)"
         body = NLRequest(

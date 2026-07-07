@@ -16,9 +16,9 @@ def test_detect_union_select():
 
 
 def test_detect_comment():
-    """Test comment detection."""
-    assert detect_sql_injection("SELECT * FROM users --")
-    assert detect_sql_injection("SELECT * FROM users /* comment */")
+    """Test comment detection (comments alone are not injections)."""
+    assert not detect_sql_injection("SELECT * FROM users --")
+    assert not detect_sql_injection("SELECT * FROM users /* comment */")
 
 
 def test_clean_query():

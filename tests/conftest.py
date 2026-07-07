@@ -137,6 +137,23 @@ def client():
             mock_pipe.execute = AsyncMock(return_value=[1, 1, 1])
             return mock_pipe
 
+        async def eval(self, script, numkeys, *keys_and_args):
+            """Mock eval for lua scripts."""
+            if 'incrbyfloat' in script:
+                key = keys_and_args[0]
+                cost = float(keys_and_args[1])
+                limit = float(keys_and_args[2])
+                current = float(self.data.get(key, 0))
+                if current + cost > limit:
+                    return -1
+                else:
+                    self.data[key] = current + cost
+                    return current + cost
+            return 1
+
+        async def zincrby(self, key, amount, member):
+            return 1.0
+
         async def lpush(self, key, value):
             """Push to left of list."""
             if key not in self.data:

@@ -292,19 +292,23 @@ async def test_get_schema_success():
 
     mock_conn = AsyncMock()
     mock_conn.fetch.return_value = [
-        {"table_schema": "public", "table_name": "users", "column_name": "id", "data_type": "uuid", "is_nullable": "NO", "is_pk": True},
-        {"table_schema": "public", "table_name": "users", "column_name": "email", "data_type": "varchar", "is_nullable": "NO", "is_pk": False},
+        {"table_schema": "public", "table_name": "users", "column_name": "id", "data_type": "uuid", "is_nullable": "NO", "is_pk": True, "fk_reference": None},
+        {"table_schema": "public", "table_name": "users", "column_name": "email", "data_type": "varchar", "is_nullable": "NO", "is_pk": False, "fk_reference": None},
     ]
     mock_conn.close = AsyncMock()
 
+    mock_km = MagicMock()
+    mock_km.get_dek = AsyncMock(return_value=b'some_dek')
+
     with patch("routers.v1.connections.PrimarySession", return_value=mock_ctx), \
          patch("routers.v1.connections.decrypt_value", return_value="postgres://plain"), \
+         patch("middleware.security.key_manager.key_manager", mock_km), \
          patch("asyncpg.connect", return_value=mock_conn):
         
         res = await get_connection_schema(conn_id, mock_request)
 
     assert len(res) == 1
-    assert res[0]["schema"] == "public"
+    assert res[0]["database_schema"] == "public"
     assert res[0]["tables"][0]["name"] == "users"
     assert len(res[0]["tables"][0]["columns"]) == 2
     assert res[0]["tables"][0]["columns"][0]["name"] == "id"
@@ -331,10 +335,10 @@ async def test_get_schema_not_owner_returns_403():
     mock_db.user_id = uuid.UUID(other_user_id) # Owned by someone else
     mock_db.is_active = True
 
-    mock_session = AsyncMock()
+    mock_session = MagicMock()
     mock_result = MagicMock()
     mock_result.scalars.return_value.first.return_value = mock_db
-    mock_session.execute.return_value = mock_result
+    mock_session.execute = AsyncMock(return_value=mock_result)
 
     mock_ctx = MagicMock()
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)

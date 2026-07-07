@@ -25,4 +25,4 @@ async def test_cache_hit(mock_request):
 async def test_write_cache(mock_request):
     mock_request.app.state.redis.setex = AsyncMock(return_value=None)
     await write_cache(mock_request, "SELECT 1", "admin", {"rows": [1]}, ttl=300)
-    mock_request.app.state.redis.setex.assert_called_once()
+    assert mock_request.app.state.redis.setex.call_count == 2

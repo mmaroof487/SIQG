@@ -45,6 +45,9 @@ def test_register_connection_success(client, admin_token):
     mock_session = AsyncMock()
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
+    mock_execute_result = MagicMock()
+    mock_execute_result.scalars.return_value.first.return_value = fake_conn
+    mock_session.execute = AsyncMock(return_value=mock_execute_result)
     # refresh sets .id on the passed object
     async def _refresh(obj):
         obj.id = fake_conn.id
@@ -58,7 +61,8 @@ def test_register_connection_success(client, admin_token):
     mock_ctx.__aenter__ = AsyncMock(return_value=mock_session)
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
-    with patch("routers.v1.connections.PrimarySession", return_value=mock_ctx):
+    with patch("routers.v1.connections.PrimarySession", return_value=mock_ctx), \
+         patch("routers.v1.connections.test_connection", new_callable=AsyncMock, return_value={"ok": True}):
         response = client.post(
             "/api/v1/connections",
             json={

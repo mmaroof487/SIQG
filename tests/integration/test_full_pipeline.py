@@ -58,10 +58,10 @@ async def test_sql_injection_blocked(client):
 
 @pytest.mark.asyncio
 async def test_metrics_endpoint_unauthenticated(client):
-    """Test /api/v1/metrics/live is accessible without auth."""
+    """Test /api/v1/metrics/live is rejected without auth."""
     response = client.get("/api/v1/metrics/live")
-    # Should be accessible (unauthenticated) — may return 200 or 500 if Redis not available
-    assert response.status_code in (200, 500)
+    # Should be rejected because it requires admin privileges
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

@@ -7,14 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 @patch("middleware.performance.cost_estimator.PrimarySession")
 async def test_cost_estimation_returns_cost(mock_session_cls):
     """Cost estimator should return (cost, warning) tuple from EXPLAIN."""
-    mock_session = AsyncMock()
+    mock_session = MagicMock()
     mock_result = MagicMock()
     mock_result.fetchall.return_value = [
         ([{"Plan": {"Total Cost": 42.5}}],)
     ]
-    mock_session.execute.return_value = mock_result
+    mock_session.execute = AsyncMock(return_value=mock_result)
     mock_session_cls.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session_cls.return_value.__aexit__ = AsyncMock()
+    mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
 
     request = MagicMock()
     request.state.role = "readonly"
@@ -45,7 +45,7 @@ async def test_cost_estimation_handles_failure(mock_session_cls):
     mock_session_cls.return_value.__aenter__ = AsyncMock(
         side_effect=Exception("DB error")
     )
-    mock_session_cls.return_value.__aexit__ = AsyncMock()
+    mock_session_cls.return_value.__aexit__ = AsyncMock(return_value=None)
 
     request = MagicMock()
     request.state.role = "readonly"
