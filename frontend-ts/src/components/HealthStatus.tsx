@@ -155,7 +155,7 @@ export default function HealthStatus() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="px-2 py-0.5 rounded bg-surface-high text-on-surface text-[10px] font-bold uppercase tracking-widest font-mono">TRACE ID</span>
-                      <span className="text-[10px] text-on-surface-variant font-mono">{q.trace_id || `TRC-${Math.floor(Math.random() * 10000)}`}</span>
+                      <span className="text-[10px] text-on-surface-variant font-mono">{q.trace_id || "N/A"}</span>
                     </div>
 									  <code className="text-xs text-on-surface font-mono truncate block group-hover:text-primary-neon transition-colors">{q.query || q.statement}</code>
                   </div>

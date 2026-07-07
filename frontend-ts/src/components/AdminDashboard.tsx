@@ -12,6 +12,7 @@ export default function AdminDashboard() {
   const [whitelist, setWhitelist] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [rbacPolicies, setRbacPolicies] = useState<any[]>([]);
+  const [actionMessage, setActionMessage] = useState<{type:'success'|'error', text:string} | null>(null);
   
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState("");
@@ -47,10 +48,12 @@ export default function AdminDashboard() {
       
       const fetchAudit = apiClient.get('/admin/audit').then(res => { const d = res.data.items || res.data; setAuditLogs(Array.isArray(d) ? d : []); });
       const fetchSlow = apiClient.get('/admin/slow-queries').then(res => { const d = res.data.items || res.data; setSlowQueries(Array.isArray(d) ? d : []); });
-      const fetchBudget = apiClient.get('/admin/budget').then(res => setBudget(res.data));
+      // Fix C-3: use canonical /query/budget endpoint (not /admin/budget)
+      const fetchBudget = apiClient.get('/query/budget').then(res => setBudget(res.data));
       const fetchUsers = apiClient.get('/admin/users').then(res => { const d = res.data.users || res.data; setUsers(Array.isArray(d) ? d : []); });
       const fetchPolicies = apiClient.get('/admin/rbac-policies').then(res => { const d = res.data.items || res.data; setRbacPolicies(Array.isArray(d) ? d : []); });
-      const fetchWhitelist = apiClient.get('/admin/whitelist').then(res => { const d = res.data.items || res.data; setWhitelist(Array.isArray(d) ? d : []); });
+      // Fix C-4: /admin/whitelist uses /admin/whitelist endpoint
+      const fetchWhitelist = apiClient.get('/admin/whitelist').then(res => { const d = res.data.items || res.data; setWhitelist(Array.isArray(d) ? d : []); }).catch(() => setWhitelist([]));
 
       if (activeTab === 'overview') {
         requests.push(fetchAudit, fetchSlow, fetchBudget, fetchUsers);
@@ -90,8 +93,7 @@ export default function AdminDashboard() {
       link.click();
       link.remove();
     } catch (err) {
-      console.error(`Export failed:`, err);
-      alert("Failed to export report.");
+      setActionMessage({ type: 'error', text: 'Failed to export report. Please try again.' });
     }
   };
 
@@ -99,10 +101,10 @@ export default function AdminDashboard() {
     e.preventDefault();
     try {
       await apiClient.post('/admin/ip-rules', { ip_address: ipAddress, rule_type: ipAction });
-      alert(`IP ${ipAddress} ${ipAction}ed successfully.`);
+      setActionMessage({ type: 'success', text: `IP ${ipAddress} ${ipAction}ed successfully.` });
       setIpAddress('');
     } catch (err) {
-      console.error(err);
+      setActionMessage({ type: 'error', text: `Failed to ${ipAction} IP ${ipAddress}. Check if it's a valid address.` });
     }
   };
 
@@ -110,9 +112,10 @@ export default function AdminDashboard() {
     if (!window.confirm('Remove this query from whitelist?')) return;
     try {
       await apiClient.delete(`/admin/whitelist/${fingerprint}`);
+      setActionMessage({ type: 'success', text: 'Query removed from whitelist.' });
       fetchData();
     } catch (err) {
-      console.error('Failed to remove whitelist:', err);
+      setActionMessage({ type: 'error', text: 'Failed to remove query from whitelist.' });
     }
   };
 
@@ -120,9 +123,10 @@ export default function AdminDashboard() {
     if (!window.confirm('Are you sure you want to delete this user?')) return;
     try {
       await apiClient.delete(`/admin/users/${userId}`);
+      setActionMessage({ type: 'success', text: 'User deleted successfully.' });
       fetchData();
     } catch (err) {
-      console.error('Failed to delete user:', err);
+      setActionMessage({ type: 'error', text: 'Failed to delete user. They may have active connections.' });
     }
   };
 
@@ -219,9 +223,22 @@ export default function AdminDashboard() {
         {loading && <div className="h-1 bg-primary-neon/20 overflow-hidden"><div className="h-full bg-primary-neon w-1/3 animate-pulse"></div></div>}
         
         {fetchError && (
-          <div className="m-6 p-4 bg-error/10 border border-error/30 text-error rounded-xl flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-            <span className="text-sm font-medium">{fetchError}</span>
+          <div className="bg-error/10 border border-error/20 text-error px-4 py-3 rounded-lg flex items-start gap-3 mb-6">
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-sm">Failed to load dashboard data</p>
+              <p className="text-xs opacity-80 mt-1">{fetchError}</p>
+            </div>
+          </div>
+        )}
+
+        {actionMessage && (
+          <div className={`border px-4 py-3 rounded-lg flex items-start gap-3 mb-6 ${actionMessage.type === 'error' ? 'bg-error/10 border-error/20 text-error' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}>
+            {actionMessage.type === 'error' ? <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" /> : <CheckCircle className="w-5 h-5 shrink-0 mt-0.5" />}
+            <div>
+              <p className="font-medium text-sm">{actionMessage.text}</p>
+            </div>
+            <button className="ml-auto opacity-70 hover:opacity-100" onClick={() => setActionMessage(null)}>×</button>
           </div>
         )}
 
@@ -235,7 +252,7 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-on-surface-variant mb-4">
                     <Shield className="w-3.5 h-3.5" /> Security Health
                   </div>
-                  <div className="text-5xl font-black text-primary-neon drop-shadow-[0_0_15px_rgba(0,255,157,0.3)]">98<span className="text-2xl text-on-surface-variant/50">/100</span></div>
+                  <div className="text-5xl font-black text-primary-neon drop-shadow-[0_0_15px_rgba(0,255,157,0.3)]">{Math.max(0, 100 - (policyViolationsCount * 5) - blockedQueriesCount)}<span className="text-2xl text-on-surface-variant/50">/100</span></div>
                 </div>
                 <div className="mt-6 space-y-2">
                   <div className="flex justify-between items-center text-xs">

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { ReactFlow, Background, Controls, type Node, type Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from "../utils/api";
-import { Database, Table as TableIcon, Columns, Key as KeyIcon, Search, RefreshCw, AlertCircle, Sparkles, Send, Loader2, Bot, User, Link as LinkIcon, Network, Play, Info, ChevronDown, Lightbulb, X, BrainCircuit } from "lucide-react";
+import { Database, Table as TableIcon, Columns, Key as KeyIcon, Search, RefreshCw, AlertCircle, Sparkles, Send, Loader2, Bot, User, Link as LinkIcon, Network, Play, Info, ChevronDown, Lightbulb, X, BrainCircuit, Lock, Unlock, Shield } from "lucide-react";
 
 interface Connection {
   id: string;
@@ -18,6 +18,8 @@ interface ColumnMetadata {
   pk: boolean;
   nullable: boolean;
   fk?: string | null;
+  is_encrypted?: boolean;
+  config_id?: number;
 }
 
 interface TableMetadata {
@@ -37,7 +39,7 @@ interface SchemaStats {
 }
 
 interface SchemaMetadata {
-  schema: string;
+  database_schema: string;
   tables: TableMetadata[];
   stats?: SchemaStats;
 }
@@ -66,6 +68,7 @@ export default function SchemaBrowserPage() {
   const [paletteSearch, setPaletteSearch] = useState("");
   const [joinTarget, setJoinTarget] = useState("");
   const [joinPath, setJoinPath] = useState<string[] | null>(null);
+  const [modalState, setModalState] = useState<{ isOpen: boolean; title: string; message: string; type: 'info' | 'success' | 'error' | 'loading' }>({ isOpen: false, title: '', message: '', type: 'info' });
 
   useEffect(() => {
     // BFS Join Path Explorer
@@ -189,7 +192,7 @@ export default function SchemaBrowserPage() {
       fetchSchema(selectedConnectionId);
     } else {
       setSchemas([]);
-      setActiveTable(null);
+      setActiveTable('');
     }
   }, [selectedConnectionId]);
 
@@ -432,19 +435,43 @@ export default function SchemaBrowserPage() {
                </div>
             </div>
           )}
-          <div className="p-4 border-b border-surface-high relative bg-surface-high/20">
+          <div className="p-4 border-b border-surface-high relative bg-surface-high/20 flex flex-col gap-3">
+            <div className="flex gap-2">
+              <button
+                onClick={() => fetchSchema(selectedConnectionId)}
+                disabled={isLoading}
+                className="flex-shrink-0 flex items-center justify-center bg-surface border border-surface-high w-10 h-10 rounded-xl text-on-surface hover:border-primary-neon/50 hover:text-primary-neon transition-colors disabled:opacity-50"
+                title="Refresh Schema"
+              >
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-primary-neon' : ''}`} />
+              </button>
+              <button
+                onClick={() => setIsCommandPaletteOpen(true)}
+                className="flex-1 flex items-center justify-between bg-surface border border-surface-high px-4 py-2 rounded-xl text-sm outline-none hover:border-primary-neon/50 text-on-surface transition-colors cursor-text group"
+              >
+                <div className="flex items-center gap-2">
+                  <Search className="w-4 h-4 text-on-surface-variant group-hover:text-primary-neon transition-colors" />
+                  <span className="text-on-surface-variant group-hover:text-on-surface transition-colors">Search tables...</span>
+                </div>
+              </button>
+            </div>
+            
             <button
-              onClick={() => setIsCommandPaletteOpen(true)}
-              className="w-full flex items-center justify-between bg-surface border border-surface-high px-4 py-2 rounded-xl text-sm outline-none hover:border-primary-neon/50 text-on-surface transition-colors cursor-text group"
+              onClick={async () => {
+                if (!selectedConnectionId || selectedConnectionId === "default") return;
+                try {
+                  setModalState({ isOpen: true, title: "Scanning Database", message: "Scanning database for sensitive PII... This may take a moment.", type: 'loading' });
+                  const res = await api.scanConnection(selectedConnectionId, false, true);
+                  setModalState({ isOpen: true, title: "Scan Complete", message: `Detected ${res.data.candidates.length} sensitive columns. ${res.data.applied_count} columns auto-registered (please enable encryption on them below).`, type: 'success' });
+                  fetchSchema(selectedConnectionId);
+                } catch(e) {
+                  console.error(e);
+                  setModalState({ isOpen: true, title: "Scan Failed", message: "Scan failed. Please check the network or server logs.", type: 'error' });
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 bg-primary-neon/10 border border-primary-neon/30 text-primary-neon px-4 py-2 rounded-xl text-sm font-bold hover:bg-primary-neon/20 transition-colors shadow-sm shadow-primary-neon/5"
             >
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-on-surface-variant group-hover:text-primary-neon transition-colors" />
-                <span className="text-on-surface-variant group-hover:text-on-surface transition-colors">Search tables...</span>
-              </div>
-              <div className="flex items-center gap-1 opacity-60">
-                <kbd className="font-mono text-[10px] bg-surface-high px-1.5 py-0.5 rounded border border-surface-high">Ctrl</kbd>
-                <kbd className="font-mono text-[10px] bg-surface-high px-1.5 py-0.5 rounded border border-surface-high">K</kbd>
-              </div>
+              <Shield className="w-4 h-4" /> Scan for PII
             </button>
           </div>
           
@@ -464,14 +491,14 @@ export default function SchemaBrowserPage() {
                 if (filteredTables.length === 0) return null;
 
                 return (
-                  <div key={schema.schema} className="space-y-2">
+                  <div key={schema.database_schema} className="space-y-2">
                     <div className="flex items-center gap-2 text-on-surface-variant font-bold uppercase tracking-wider text-xs mb-2 pl-1">
-                      <Database className="w-3.5 h-3.5" /> Schema: {schema.schema}
+                      <Database className="w-3.5 h-3.5" /> Schema: {schema.database_schema}
                     </div>
                     {filteredTables.map(table => (
                       <button 
                         key={table.name}
-                        onClick={() => { setActiveTable(table.name); setHighlightedColumn(null); }}
+                        onClick={() => { setActiveTable(table.name); setHighlightedColumn(''); }}
                         className={`w-full flex items-center justify-between p-3 rounded-xl transition-all ${activeTable === table.name ? 'bg-primary-neon/10 border border-primary-neon/30 text-primary-neon shadow-[inset_0_0_10px_rgba(0,255,157,0.05)]' : 'hover:bg-surface-high/50 border border-transparent text-on-surface/80 hover:text-on-surface'}`}
                       >
                         <span className="flex items-center gap-2.5 font-mono text-sm">
@@ -479,6 +506,7 @@ export default function SchemaBrowserPage() {
                         </span>
                         <div className="flex items-center gap-2">
                           {table.relationships && table.relationships.length > 0 && <Network className="w-3.5 h-3.5 text-blue-400 opacity-60" />}
+                          {table.columns.some(c => c.config_id && !c.is_encrypted) && <span title="Contains unencrypted sensitive PII"><AlertCircle className="w-3.5 h-3.5 text-orange-500 animate-pulse" /></span>}
                           <span className="text-xs text-on-surface-variant font-mono bg-surface-high/50 px-1.5 py-0.5 rounded" title="Columns">{table.columns.length}</span>
                           {activeTable === table.name && <div className="w-1.5 h-1.5 bg-primary-neon rounded-full shadow-[0_0_5px_#00FF9D]"></div>}
                         </div>
@@ -525,7 +553,7 @@ export default function SchemaBrowserPage() {
               <div className="p-8 flex-1 overflow-y-auto space-y-8 bg-surface/30 relative">
                 
                 {/* Big Relationship Graph */}
-                <div className={`bg-surface-high/10 border border-surface-high rounded-xl overflow-hidden relative group shadow-inner ring-1 ring-white/5 transition-all duration-300 ${flowNodes.length > 0 ? 'h-[300px]' : 'h-[120px]'}`}>
+                <div className={`w-full bg-surface-high/10 border border-surface-high rounded-xl overflow-hidden relative group shadow-inner ring-1 ring-white/5 transition-all duration-300 ${flowNodes.length > 0 ? 'h-[300px]' : 'h-[120px]'}`}>
                   <div className="absolute top-4 left-4 z-10 flex items-center gap-2 pointer-events-none">
                     <div className="bg-surface/80 backdrop-blur border border-surface-high rounded-lg px-3 py-1.5 flex items-center gap-2 shadow-lg">
                       <Network className="w-4 h-4 text-primary-neon" />
@@ -537,7 +565,8 @@ export default function SchemaBrowserPage() {
                       nodes={flowNodes} 
                       edges={flowEdges} 
                       fitView 
-                      className="bg-transparent"
+                      className="bg-transparent w-full h-full"
+                      style={{ width: '100%', height: '100%' }}
                       proOptions={{ hideAttribution: true }}
                     >
                       <Background color="rgba(255,255,255,0.05)" gap={16} />
@@ -552,7 +581,7 @@ export default function SchemaBrowserPage() {
                 </div>
 
                 {/* Attributes Grid (Collapsible) */}
-                <details id="attributes-details" className="bg-surface-high/5 border border-surface-high/50 rounded-xl group transition-all open:bg-surface-high/10">
+                <details open id="attributes-details" className="bg-surface-high/5 border border-surface-high/50 rounded-xl group transition-all open:bg-surface-high/10">
                   <summary className="p-4 cursor-pointer flex items-center justify-between outline-none">
                     <h4 className="text-[10px] uppercase font-bold tracking-wider text-on-surface flex items-center gap-2">
                       <Columns className="w-3.5 h-3.5 text-on-surface-variant" /> Data Attributes ({activeTableObj.columns.length})
@@ -562,26 +591,76 @@ export default function SchemaBrowserPage() {
                   </summary>
                   <div className="p-4 pt-0 border-t border-surface-high/50 mt-2">
                     <div className="grid grid-cols-2 xl:grid-cols-3 gap-3 mt-4">
-                      {activeTableObj.columns.map(col => (
-                        <div id={`col-${col.name}`} key={col.name} className={`bg-surface border ${highlightedColumn === col.name ? 'border-primary-neon shadow-[0_0_15px_rgba(0,255,157,0.2)]' : 'border-surface-high/50'} rounded-xl p-3.5 hover:border-primary-neon/20 transition-all relative overflow-hidden group/col`}>
+                      {activeTableObj.columns.map(col => {
+                        const isSensitive = col.config_id && !col.is_encrypted;
+                        return (
+                        <div id={`col-${col.name}`} key={col.name} className={`bg-surface border ${highlightedColumn === col.name ? 'border-primary-neon shadow-[0_0_15px_rgba(0,255,157,0.2)]' : isSensitive ? 'border-orange-500/50 shadow-[0_0_10px_rgba(249,115,22,0.15)] bg-orange-500/5' : 'border-surface-high/50'} rounded-xl p-3.5 hover:border-primary-neon/20 transition-all relative overflow-hidden group/col`}>
                           {col.pk && <div className="absolute top-0 left-0 w-1 h-full bg-primary-neon transition-colors"></div>}
                           {col.fk && !col.pk && <div className="absolute top-0 left-0 w-1 h-full bg-blue-400 transition-colors"></div>}
-                          {!col.pk && !col.fk && <div className="absolute top-0 left-0 w-1 h-full bg-surface-high transition-colors group-hover/col:bg-primary-neon/50"></div>}
+                          {!col.pk && !col.fk && <div className={`absolute top-0 left-0 w-1 h-full transition-colors ${isSensitive ? 'bg-orange-500' : 'bg-surface-high group-hover/col:bg-primary-neon/50'}`}></div>}
                           
-                          <div className="font-mono text-sm font-bold text-on-surface mb-2 pl-2 truncate flex items-center gap-2" title={col.name}>
-                            {col.name}
-                            {col.pk && <span title="Primary Key"><KeyIcon className="w-3 h-3 text-primary-neon flex-shrink-0" /></span>}
-                            {col.fk && <span title="Foreign Key"><LinkIcon className="w-3 h-3 text-blue-400 flex-shrink-0" /></span>}
+                          <div className="flex items-center gap-2 mb-2 pl-2 min-w-0">
+                            <span className="font-mono text-sm font-bold text-on-surface truncate flex-1" title={col.name}>
+                              {col.name}
+                            </span>
+                            {col.pk && <span title="Primary Key" className="flex-shrink-0"><KeyIcon className="w-3 h-3 text-primary-neon" /></span>}
+                            {col.fk && <span title="Foreign Key" className="flex-shrink-0"><LinkIcon className="w-3 h-3 text-blue-400" /></span>}
+                            {isSensitive && <span title="Sensitive PII Detected" className="bg-orange-500/20 text-orange-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase tracking-wider font-sans flex-shrink-0">PII</span>}
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const newSchemas = [...schemas];
+                                const currentSchema = newSchemas.find(s => s.tables.some(t => t.name === activeTable));
+                                if (!currentSchema) return;
+                                const table = currentSchema.tables.find(t => t.name === activeTable);
+                                if (!table) return;
+                                const c = table.columns.find(c => c.name === col.name);
+                                if (!c) return;
+
+                                try {
+                                  if (c.is_encrypted && c.config_id) {
+                                    // Delete rule
+                                    await api.deleteColumnEncryption(selectedConnectionId, c.config_id);
+                                    c.is_encrypted = false;
+                                    c.config_id = undefined;
+                                  } else {
+                                    if (c.config_id) {
+                                      // Exists but unencrypted (e.g. from PII scan), delete it first to avoid 409
+                                      await api.deleteColumnEncryption(selectedConnectionId, c.config_id);
+                                    }
+                                    // Add rule
+                                    const res = await api.addColumnEncryption(selectedConnectionId, {
+                                      schema_name: currentSchema.schema,
+                                      table_name: table.name,
+                                      column_name: col.name,
+                                      classification_method: 0,
+                                      is_encrypted: true
+                                    });
+                                    c.is_encrypted = true;
+                                    c.config_id = res.data.id;
+                                  }
+                                  setSchemas(newSchemas);
+                                } catch (err) {
+                                  console.error("Failed to toggle encryption", err);
+                                  setModalState({ isOpen: true, title: "Encryption Error", message: "Failed to toggle encryption. It might already exist or the network failed.", type: 'error' });
+                                }
+                              }}
+                              className={`ml-auto mr-2 p-1 rounded-md transition-colors ${col.is_encrypted ? 'text-primary-neon bg-primary-neon/10 hover:bg-primary-neon/20' : isSensitive ? 'text-orange-500 bg-orange-500/10 hover:bg-orange-500/20 ring-1 ring-orange-500/50' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-high'}`}
+                              title={col.is_encrypted ? "Column is encrypted" : isSensitive ? "Click to enable encryption for sensitive PII" : "Click to encrypt column"}
+                            >
+                              {col.is_encrypted ? <Lock className="w-3.5 h-3.5" /> : <Unlock className={`w-3.5 h-3.5 ${isSensitive ? 'animate-bounce' : ''}`} />}
+                            </button>
                           </div>
-                          <div className="flex justify-between items-center pl-2">
-                            <span className="font-mono text-[10px] text-primary-container truncate max-w-[60%]">{col.type}</span>
+                          <div className="flex justify-between items-center pl-2 gap-2 min-w-0">
+                            <span className="font-mono text-[10px] text-primary-container truncate flex-1" title={col.type}>{col.type}</span>
                             {col.nullable ? 
-                              <span className="text-[9px] text-on-surface-variant uppercase tracking-wider font-bold">Optional</span> : 
-                              <span className="text-[9px] text-error/80 uppercase tracking-wider font-bold">Required</span>
+                              <span className="text-[9px] text-on-surface-variant uppercase tracking-wider font-bold flex-shrink-0">Optional</span> : 
+                              <span className="text-[9px] text-error/80 uppercase tracking-wider font-bold flex-shrink-0">Required</span>
                             }
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </details>
@@ -963,17 +1042,17 @@ export default function SchemaBrowserPage() {
             </div>
             <div className="max-h-[60vh] overflow-y-auto p-2">
               {(() => {
-                const results: { type: 'table' | 'column', text: string, table: string, schema: string }[] = [];
+                const results: { type: 'table' | 'column', text: string, table: string, database_schema: string }[] = [];
                 if (paletteSearch.trim().length > 0) {
                   const q = paletteSearch.toLowerCase();
                   schemas.forEach(s => {
                     s.tables.forEach(t => {
                       if (t.name.toLowerCase().includes(q)) {
-                        results.push({ type: 'table', text: t.name, table: t.name, schema: s.schema });
+                        results.push({ type: 'table', text: t.name, table: t.name, database_schema: s.database_schema });
                       }
                       t.columns.forEach(c => {
                         if (c.name.toLowerCase().includes(q)) {
-                          results.push({ type: 'column', text: `${t.name}.${c.name}`, table: t.name, schema: s.schema });
+                          results.push({ type: 'column', text: `${t.name}.${c.name}`, table: t.name, database_schema: s.database_schema });
                         }
                       });
                     });
@@ -1033,6 +1112,34 @@ export default function SchemaBrowserPage() {
                 ));
               })()}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Modal */}
+      {modalState.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-surface border border-surface-high rounded-2xl shadow-2xl max-w-md w-full p-6 relative flex flex-col gap-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              {modalState.type === 'loading' && <Loader2 className="w-6 h-6 text-primary-neon animate-spin" />}
+              {modalState.type === 'success' && <Sparkles className="w-6 h-6 text-primary-neon" />}
+              {modalState.type === 'error' && <AlertCircle className="w-6 h-6 text-error" />}
+              {modalState.type === 'info' && <Info className="w-6 h-6 text-blue-400" />}
+              <h3 className="text-lg font-bold text-on-surface">{modalState.title}</h3>
+            </div>
+            <p className="text-sm text-on-surface-variant leading-relaxed">
+              {modalState.message}
+            </p>
+            {modalState.type !== 'loading' && (
+              <div className="flex justify-end mt-2">
+                <button
+                  onClick={() => setModalState(prev => ({ ...prev, isOpen: false }))}
+                  className="bg-primary-neon text-surface hover:bg-white px-5 py-2 rounded-xl text-sm font-bold transition-colors"
+                >
+                  OK
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

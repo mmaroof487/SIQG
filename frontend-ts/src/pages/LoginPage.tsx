@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 import { KeyRound, User, Lock, ShieldCheck } from 'lucide-react';
 
 // Parse backend validation errors — handles both plain strings and
@@ -35,6 +36,7 @@ const STRENGTH_COLOR = ['', 'bg-red-500', 'bg-yellow-400', 'bg-blue-400', 'bg-pr
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -72,12 +74,10 @@ export default function LoginPage() {
     try {
       if (isRegistering) {
         const res = await api.register(username, email, password);
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('role', res.data.role);
+        login(true, res.data.role);
       } else {
         const res = await api.login(username, password);
-        localStorage.setItem('isAuthenticated', 'true');
-        localStorage.setItem('role', res.data.role);
+        login(true, res.data.role);
       }
       // Use React Router navigate instead of hard page reload
       navigate('/dashboard', { replace: true });

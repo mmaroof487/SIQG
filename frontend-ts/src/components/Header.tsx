@@ -1,22 +1,32 @@
 import { Search, ChevronDown } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { useSettings } from '../contexts/SettingsContext';
+import { api } from '../utils/api';
+
+type HealthStatus = 'checking' | 'healthy' | 'degraded' | 'down';
 
 export default function Header() {
   const { mode, toggleMode, role, setRole } = useSettings();
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
   const roleDropdownRef = useRef<HTMLDivElement>(null);
+  const [healthStatus, setHealthStatus] = useState<HealthStatus>('checking');
 
+  // Poll actual /health endpoint every 30s
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        // Trigger command palette logic here or globally
-        console.log("Command palette opened");
+    const checkHealth = async () => {
+      try {
+        const res = await api.checkHealth();
+        const status = res.data?.status;
+        if (status === 'ok') setHealthStatus('healthy');
+        else if (status === 'degraded') setHealthStatus('degraded');
+        else setHealthStatus('down');
+      } catch {
+        setHealthStatus('down');
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    checkHealth();
+    const interval = setInterval(checkHealth, 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -27,7 +37,18 @@ export default function Header() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);  return (
+  }, []);
+
+  const healthConfig: Record<HealthStatus, { dot: string; text: string; label: string }> = {
+    checking: { dot: 'bg-yellow-400 animate-pulse', text: 'text-yellow-400', label: 'Checking...' },
+    healthy:  { dot: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]', text: 'text-emerald-400', label: 'System Healthy' },
+    degraded: { dot: 'bg-yellow-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]', text: 'text-yellow-400', label: 'Degraded' },
+    down:     { dot: 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]',     text: 'text-red-400',   label: 'System Down' },
+  };
+
+  const hc = healthConfig[healthStatus];
+
+  return (
     <header className="bg-surface/90 backdrop-blur-md border-b border-surface-high sticky top-0 z-50 h-16 flex justify-between items-center px-6 shadow-sm">
       {/* Left */}
       <div className="flex items-center gap-3 flex-1">
@@ -41,8 +62,8 @@ export default function Header() {
 
       {/* Center - Command Palette */}
       <div className="flex-1 flex justify-center max-w-2xl w-full px-4 hidden md:flex">
-        <button 
-          onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true }))}
+        <button
+          onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true, bubbles: true }))}
           className="w-full max-w-md bg-surface-high/50 hover:bg-surface-high transition-colors border border-surface-high rounded-lg px-4 py-2 flex items-center justify-between group cursor-text"
         >
           <div className="flex items-center gap-2 text-on-surface-variant group-hover:text-primary-neon transition-colors">
@@ -58,16 +79,16 @@ export default function Header() {
 
       {/* Right - Controls */}
       <div className="flex items-center gap-4 flex-1 justify-end shrink-0">
-        {/* System Healthy */}
-        <div className="hidden lg:flex shrink-0 whitespace-nowrap items-center gap-2 text-xs font-medium mr-2 border border-surface-high bg-surface-high/20 px-3 py-1.5 rounded-full cursor-pointer hover:bg-surface-high/40 transition-colors">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)] shrink-0"></div>
-          <span className="text-emerald-400">System Healthy</span>
+        {/* Real System Health Badge */}
+        <div className={`hidden lg:flex shrink-0 whitespace-nowrap items-center gap-2 text-xs font-medium mr-2 border border-surface-high bg-surface-high/20 px-3 py-1.5 rounded-full`}>
+          <div className={`w-2 h-2 rounded-full shrink-0 ${hc.dot}`}></div>
+          <span className={hc.text}>{hc.label}</span>
         </div>
 
         {/* Role Switcher */}
         <div className="flex shrink-0 whitespace-nowrap items-center gap-2 bg-surface-high/50 rounded-lg px-3 py-1.5 border border-surface-high relative" ref={roleDropdownRef}>
           <span className="text-xs text-on-surface-variant font-medium hidden xl:block">Viewing as:</span>
-          <button 
+          <button
             type="button"
             onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
             className="flex items-center gap-1 bg-transparent text-sm text-on-surface font-semibold outline-none cursor-pointer hover:text-primary-neon transition-colors"
@@ -96,7 +117,7 @@ export default function Header() {
         </div>
 
         {/* Mode Toggle */}
-        <button 
+        <button
           onClick={toggleMode}
           className="flex shrink-0 whitespace-nowrap items-center gap-2 group transition-all"
         >
@@ -107,8 +128,6 @@ export default function Header() {
             {mode === 'simple' ? 'Simple Mode' : 'Power Mode'}
           </span>
         </button>
-
-
       </div>
     </header>
   );

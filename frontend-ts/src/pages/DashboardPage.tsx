@@ -56,8 +56,13 @@ export default function DashboardPage() {
 			}
 
 			// 2. Fetch Metrics
-			const metricsRes = await api.getLiveMetrics();
-			setMetrics(metricsRes.data);
+			let metricsRes: any = null;
+			try {
+				metricsRes = await api.getLiveMetrics();
+				setMetrics(metricsRes.data);
+			} catch (e) {
+				console.warn("User may not have permission to view live metrics.");
+			}
 
 			// 3. Fetch Audit Logs (Security Feed)
 			try {
@@ -148,14 +153,14 @@ export default function DashboardPage() {
 
 			// Generate AI Insights
 			const insights = [];
-			if (metricsRes.data?.top_tables && metricsRes.data.top_tables.length > 0) {
+			if (metricsRes?.data?.top_tables && metricsRes.data.top_tables.length > 0) {
 				insights.push(`Most queries target \`${metricsRes.data.top_tables[0].name}\` table.`);
 			} else if (mostConnected.length > 0) {
 				insights.push(`Most schema complexity is centered around \`${mostConnected[0].name}\`.`);
 			}
 			
 			if (activeConns.length > 0) {
-				insights.push(`\`${activeConns[0].display_name}\` database contains ${Math.floor(Math.random() * 40 + 40)}% of all relationships.`);
+				insights.push(`\`${activeConns[0].display_name}\` database is active and performing normally.`);
 			}
 			insights.push("Consider indexing: `created_at` in frequently queried tables.");
 			setAiInsights(insights);

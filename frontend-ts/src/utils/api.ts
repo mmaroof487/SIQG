@@ -16,21 +16,23 @@ apiClient.interceptors.response.use(
 	(error) => {
 		if (error.response && error.response.status === 401) {
 			// Session expired, auto-logout
-			localStorage.removeItem("isAuthenticated");
-			localStorage.removeItem("role");
-			window.location.href = "/login";
+			if (window.location.pathname !== "/login") {
+				window.location.href = "/login";
+			}
 		}
 		return Promise.reject(error);
 	}
 );
 
 export const api = {
+	getMe: () => apiClient.get("/auth/me"),
 	getConnections: () => apiClient.get("/connections"),
 	createConnection: (payload: any) => apiClient.post("/connections", payload),
 	testConnection: (id: string) => apiClient.post(`/connections/${id}/test`, {}),
 	deleteConnection: (id: string) => apiClient.delete(`/connections/${id}`),
 	hardDeleteConnection: (id: string) => apiClient.delete(`/connections/${id}/hard`),
-	getConnectionSchema: (id: string) => apiClient.get(`/connections/${id}/schema`),
+	restoreConnection: (id: string) => apiClient.put(`/connections/${id}/restore`),
+	getConnectionSchema: (id: string) => apiClient.get(`/connections/${id}/schema?t=${Date.now()}`),
 	executeQuery: (query: string, dryRun: boolean = false, connectionId?: string | null) => {
 		const payload: any = { query, dry_run: dryRun };
 		if (connectionId && connectionId !== "default") {
@@ -38,7 +40,7 @@ export const api = {
 		}
 		return apiClient.post("/query/execute", payload);
 	},
-	getSchemaIntelligence: (id: string, schemaJson: string) => apiClient.post(`/connections/${id}/intelligence`, { schema_json: schemaJson }),
+	getSchemaIntelligence: (id: string, schemaJson: string) => apiClient.post(`/connections/${id}/intelligence`, { schema_metadata: schemaJson }),
 	nlToSql: (question: string, schemaHint: string = "", connectionId?: string) => apiClient.post("/ai/nl-to-sql", { question, schema_hint: schemaHint, connection_id: connectionId }),
 	explainQuery: (query: string) => apiClient.post("/ai/explain", { query }),
 	getInsights: (query: string, rows: any[], columns: string[]) => apiClient.post("/ai/insights", { query, rows, columns }),
@@ -47,7 +49,7 @@ export const api = {
 	getBudget: () => apiClient.get("/query/budget"),
 	getUserHistory: (limit: number = 50, offset: number = 0) => apiClient.get("/query/history", { params: { limit, offset } }),
 	getLiveMetrics: () => apiClient.get("/metrics/live"),
-	checkHealth: () => axios.get(`${API_BASE.replace('/api/v1', '')}/health`),
+	checkHealth: () => axios.get(`${API_BASE.replace('/api/v1', '')}/health/ready`),
 	getStatus: () => apiClient.get("/status"),
 	getAuditLogs: () => apiClient.get("/admin/audit"),
 	getSlowQueries: () => apiClient.get("/admin/slow-queries"),
@@ -59,10 +61,11 @@ export const api = {
 	login: (username: string, password: string) => apiClient.post("/auth/login", { username, password }),
 	register: (username: string, email: string, password: string) => apiClient.post("/auth/register", { username, email, password }),
 	logout: () => {
-		localStorage.removeItem("isAuthenticated");
-		localStorage.removeItem("role");
 		return apiClient.post("/auth/logout");
 	},
+	scanConnection: (id: string, runAi: boolean = false, autoApply: boolean = false) => apiClient.post(`/connections/${id}/scan`, { run_ai: runAi, auto_apply: autoApply }),
+	addColumnEncryption: (id: string, payload: any) => apiClient.post(`/connections/${id}/encryption`, payload),
+	deleteColumnEncryption: (id: string, configId: number) => apiClient.delete(`/connections/${id}/encryption/${configId}`),
 };
 
 export default apiClient;

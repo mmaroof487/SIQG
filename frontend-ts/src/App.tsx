@@ -11,14 +11,17 @@ import SettingsPage from "./pages/SettingsPage";
 import ConnectionsPage from "./pages/ConnectionsPage";
 import DashboardPage from "./pages/DashboardPage";
 import { SettingsProvider } from "./contexts/SettingsContext";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 import { CommandPalette } from "./components/CommandPalette";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const isAuth = localStorage.getItem("isAuthenticated") === "true";
+  const { isAuthenticated, loading } = useAuth();
   const location = useLocation();
 
-  if (!isAuth) {
+  if (loading) return <div className="h-screen w-screen flex items-center justify-center bg-surface-low text-primary-neon">Loading...</div>;
+
+  if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
@@ -38,18 +41,14 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Get the user role from localStorage. */
-function getTokenRole(): string | null {
-  return localStorage.getItem("role");
-}
-
 /**
  * Wraps a route so only users with role=="admin" can access it.
  * Non-admin authenticated users are redirected to /dashboard.
  * Must be used inside RequireAuth (which handles unauthenticated redirects).
  */
 function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const role = getTokenRole();
+  const { role, loading } = useAuth();
+  if (loading) return null;
   if (role !== 'admin') {
     return <Navigate to="/dashboard" replace />;
   }
@@ -58,24 +57,26 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <SettingsProvider>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
-          <Route path="/query" element={<RequireAuth><QueryPage /></RequireAuth>} />
-          <Route path="/connections" element={<RequireAuth><ConnectionsPage /></RequireAuth>} />
-          <Route path="/health" element={<RequireAuth><HealthPage /></RequireAuth>} />
-          <Route path="/schema" element={<RequireAuth><SchemaBrowserPage /></RequireAuth>} />
-          <Route path="/admin" element={<RequireAuth><RequireAdmin><AdminPage /></RequireAdmin></RequireAuth>} />
-          <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
-          
-          {/* Catch-all route */}
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-      </Router>
-    </SettingsProvider>
+    <AuthProvider>
+      <SettingsProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+            <Route path="/query" element={<RequireAuth><QueryPage /></RequireAuth>} />
+            <Route path="/connections" element={<RequireAuth><ConnectionsPage /></RequireAuth>} />
+            <Route path="/health" element={<RequireAuth><HealthPage /></RequireAuth>} />
+            <Route path="/schema" element={<RequireAuth><SchemaBrowserPage /></RequireAuth>} />
+            <Route path="/admin" element={<RequireAuth><RequireAdmin><AdminPage /></RequireAdmin></RequireAuth>} />
+            <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+            
+            {/* Catch-all route */}
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Router>
+      </SettingsProvider>
+    </AuthProvider>
   );
 }
 

@@ -3,15 +3,18 @@ import { Link } from "react-router-dom";
 import { api } from "../utils/api";
 import { 
   Database, Plus, Trash2, Key, 
-  RefreshCw, CheckCircle, XCircle, AlertCircle,
+  RefreshCw, CheckCircle, XCircle, AlertCircle, Pause, Play,
   Server, LayoutTemplate, Network, Activity, Search, Shield, Zap, Sparkles, Clock, Compass
 } from "lucide-react";
 
-interface ColumnEncryptionConfig {
+interface ColumnSecurityConfig {
   id: number;
   connection_id: string;
+  schema_name: string;
   table_name: string;
   column_name: string;
+  classification_method: number;
+  is_encrypted: boolean;
   created_at: string;
 }
 
@@ -22,7 +25,7 @@ export interface Connection {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  column_encryption_configs: ColumnEncryptionConfig[];
+  column_security_configs: ColumnSecurityConfig[];
 }
 
 export default function ConnectionsPage() {
@@ -42,6 +45,8 @@ export default function ConnectionsPage() {
   const [dbName, setDbName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [stats, setStats] = useState({ tables: 0, columns: 0, relationships: 0 });
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const getBuiltConnStr = () => {
     if (dbType === "sqlite") return connStr;
@@ -80,14 +85,38 @@ export default function ConnectionsPage() {
     setError("");
     setSuccess("");
     try {
-      await api.createConnection({
+      const res = await api.createConnection({
         display_name: displayName.trim(),
         db_type: dbType,
         conn_str: finalConnStr.trim()
       });
       // Move to success / discovery step instead of closing
       setWizardStep(6);
+      setIsAnalyzing(true);
       fetchConnections(); // Refresh data in background
+      
+      // Fetch schema for stats
+      try {
+        const schemaRes = await api.getConnectionSchema(res.data.id);
+        const schema = schemaRes.data;
+        let tCount = 0;
+        let cCount = 0;
+        let rCount = 0;
+        
+        schema.forEach((s: any) => {
+          tCount += s.tables.length;
+          s.tables.forEach((t: any) => {
+            cCount += t.columns.length;
+            rCount += t.columns.filter((c: any) => c.fk !== null).length;
+          });
+        });
+        
+        setStats({ tables: tCount, columns: cCount, relationships: rCount });
+      } catch (err) {
+        console.error("Failed to analyze schema:", err);
+      } finally {
+        setIsAnalyzing(false);
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to create connection.");
     }
@@ -138,6 +167,18 @@ export default function ConnectionsPage() {
       fetchConnections();
     } catch (err: any) {
       setError(err.response?.data?.detail || "Failed to remove connection.");
+    }
+  };
+
+  const handleRestoreConnection = async (id: string) => {
+    setError("");
+    setSuccess("");
+    try {
+      await api.restoreConnection(id);
+      setSuccess("Connection restored successfully.");
+      fetchConnections();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || "Failed to restore connection.");
     }
   };
 
@@ -362,17 +403,23 @@ export default function ConnectionsPage() {
                 <div className="grid grid-cols-3 gap-4 w-full mt-4">
                   <div className="p-4 bg-surface border border-surface-high rounded-xl">
                     <LayoutTemplate className="w-5 h-5 text-primary-neon mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-on-surface">--</div>
+                    <div className="text-2xl font-bold text-on-surface">
+                      {isAnalyzing ? <RefreshCw className="w-6 h-6 animate-spin mx-auto text-on-surface-variant" /> : stats.tables}
+                    </div>
                     <div className="text-xs text-on-surface-variant uppercase tracking-wider font-bold">Tables Found</div>
                   </div>
                   <div className="p-4 bg-surface border border-surface-high rounded-xl">
                     <Server className="w-5 h-5 text-primary-container mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-on-surface">--</div>
+                    <div className="text-2xl font-bold text-on-surface">
+                      {isAnalyzing ? <RefreshCw className="w-6 h-6 animate-spin mx-auto text-on-surface-variant" /> : stats.columns}
+                    </div>
                     <div className="text-xs text-on-surface-variant uppercase tracking-wider font-bold">Columns Found</div>
                   </div>
                   <div className="p-4 bg-surface border border-surface-high rounded-xl">
                     <Network className="w-5 h-5 text-secondary-teal mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-on-surface">--</div>
+                    <div className="text-2xl font-bold text-on-surface">
+                      {isAnalyzing ? <RefreshCw className="w-6 h-6 animate-spin mx-auto text-on-surface-variant" /> : stats.relationships}
+                    </div>
                     <div className="text-xs text-on-surface-variant uppercase tracking-wider font-bold">Relationships</div>
                   </div>
                 </div>
@@ -490,24 +537,33 @@ export default function ConnectionsPage() {
                             {isHealthy ? "Active" : "Inactive"}
                           </div>
                           
-                          {/* Delete Button */}
+                          {/* Hold / Play Button */}
                           {isHealthy ? (
                             <button
                               onClick={() => handleDeleteConnection(conn.id)}
-                              className="p-1.5 text-on-surface-variant hover:text-amber-400 hover:bg-amber-400/10 rounded-lg transition-all"
-                              title="Deactivate Connection"
+                              className="px-2 py-1 flex items-center gap-1 text-on-surface-variant hover:text-amber-400 hover:bg-amber-400/10 rounded-lg transition-all text-[11px] font-bold"
+                              title="Hold Connection (Deactivate)"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Pause className="w-3.5 h-3.5" /> Hold
                             </button>
                           ) : (
                             <button
-                              onClick={() => handleHardDeleteConnection(conn.id)}
-                              className="p-1.5 text-on-surface-variant hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-all"
-                              title="Permanently Remove Connection"
+                              onClick={() => handleRestoreConnection(conn.id)}
+                              className="px-2 py-1 flex items-center gap-1 text-on-surface-variant hover:text-emerald-400 hover:bg-emerald-400/10 rounded-lg transition-all text-[11px] font-bold"
+                              title="Restore Connection (Activate)"
                             >
-                              <XCircle className="w-4 h-4" />
+                              <Play className="w-3.5 h-3.5" /> Restore
                             </button>
                           )}
+                          
+                          {/* Delete Button */}
+                          <button
+                            onClick={() => handleHardDeleteConnection(conn.id)}
+                            className="px-2 py-1 flex items-center gap-1 text-on-surface-variant hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-all text-[11px] font-bold"
+                            title="Permanently Remove Connection"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -566,24 +622,30 @@ export default function ConnectionsPage() {
                           </div>
                         </div>
                         
-                        {!conn.column_encryption_configs || conn.column_encryption_configs.length === 0 ? (
-                          <p className="text-xs text-on-surface-variant italic">No columns configured for encryption. Queries will be stored in plaintext.</p>
+                        {!conn.column_security_configs || conn.column_security_configs.length === 0 ? (
+                          <p className="text-xs text-on-surface-variant italic">No columns configured for security.</p>
                         ) : (
                           <div className="overflow-x-auto">
                             <table className="w-full text-left text-xs font-mono">
                               <thead>
                                 <tr className="border-b border-surface-high text-on-surface-variant font-sans font-bold">
-                                  <th className="pb-2">Table</th>
+                                  <th className="pb-2">Schema.Table</th>
                                   <th className="pb-2">Column</th>
-                                  <th className="pb-2 text-right">Policy</th>
+                                  <th className="pb-2 text-right">Encrypted</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-surface-high/30">
-                                {conn.column_encryption_configs.map((config) => (
+                                {conn.column_security_configs.map((config) => (
                                   <tr key={config.id} className="text-on-surface/90">
-                                    <td className="py-2">{config.table_name}</td>
+                                    <td className="py-2">{config.schema_name}.{config.table_name}</td>
                                     <td className="py-2 text-primary-neon">{config.column_name}</td>
-                                    <td className="py-2 text-right text-primary-container">AES-256</td>
+                                    <td className="py-2 text-right">
+                                      {config.is_encrypted ? (
+                                        <span className="text-emerald-400">Yes</span>
+                                      ) : (
+                                        <span className="text-on-surface-variant">No</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>

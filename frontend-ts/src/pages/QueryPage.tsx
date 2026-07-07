@@ -419,7 +419,13 @@ export default function QueryPage() {
                     {(isExecutingPipeline || results || blockedInfo) && (
                         <div className="flex flex-col gap-2">
                             <SecurityAnalysisCard status={securityStatus} reasons={securityStatus === 'error' ? blockedInfo?.block_reasons : undefined} />
-                            <CostAnalysisCard status={costStatus} cost={analysis?.cost} rows={results?.rows?.length} runtime={analysis?.latencyMs} />
+                            <CostAnalysisCard 
+                                status={costStatus} 
+                                cost={analysis?.cost} 
+                                rows={results?.rows?.length} 
+                                runtime={analysis?.latencyMs}
+                                encryptionStats={analysis?.analysis?.encryption_stats}
+                            />
                             
                             {explanation && !blockedInfo && (
                                 <div className="bg-surface/60 border border-surface-high rounded-xl p-3 shadow-sm space-y-1">
@@ -554,7 +560,9 @@ export default function QueryPage() {
                                             </div>
                                         </div>
                                     ) : results?.rows.length === 0 ? (
-                                        <div className="p-8 text-center text-on-surface-variant italic">No results returned</div>
+                                        <div className="p-8 text-center text-on-surface-variant italic">
+                                            "No results returned"
+                                        </div>
                                     ) : results ? (
                                         <ResultsTable rows={results.rows} columns={results.columns} isLoading={false} error={error} />
                                     ) : error ? (
