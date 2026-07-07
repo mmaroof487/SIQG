@@ -10,7 +10,6 @@
   <img src="https://img.shields.io/badge/Python-3.11-blue?style=flat-square&logo=python" alt="Python Version" />
   <img src="https://img.shields.io/badge/React-18-blue?style=flat-square&logo=react" alt="React Version" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker Ready" />
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-lightgrey?style=flat-square" alt="License" /></a>
 </div>
 
 ---
@@ -455,10 +454,6 @@ We welcome contributions!
 6. Open a Pull Request
 
 ---
-
-## License
-
-Argus is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 <div align="center">
   <i>Built with precision by <a href="https://github.com/mmaroof487">mmaroof487</a></i>
