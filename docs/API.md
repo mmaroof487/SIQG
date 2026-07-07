@@ -1,52 +1,84 @@
-# Argus API Guide
+# Argus API Reference
 
-## Base URL
-All API requests should be directed to `/api/v1`
+All API requests must be directed to `/api/v1`. The API requires standard HTTP methods and returns JSON responses.
+
+---
 
 ## Authentication
-Argus uses JWT Bearer tokens for authentication.
-Include the token in the Authorization header:
-`Authorization: Bearer <token>`
 
-## Core Endpoints
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/auth/login` | Authenticate with username/password to receive a JWT. |
+| `POST` | `/auth/register` | Register a new user account. |
+| `POST` | `/auth/refresh` | Refresh an expiring JWT (includes a 5-minute grace period). |
 
-### 1. `POST /auth/login`
-Authenticate and retrieve a JWT token.
-**Payload:**
-```json
-{
-  "username": "admin",
-  "password": "password123"
-}
-```
+---
 
-### 2. `POST /query/execute`
-Execute a SQL query against a registered database connection.
-**Payload:**
-```json
-{
-  "connection_id": "uuid-here",
-  "query": "SELECT * FROM users",
-  "limit": 100
-}
-```
+## Connections
 
-### 3. `POST /ai/nl-to-sql`
-Translate natural language into SQL.
-**Payload:**
-```json
-{
-  "connection_id": "uuid-here",
-  "question": "Show me the top 5 users created this week"
-}
-```
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/connections` | List all registered external database connections. |
+| `POST` | `/connections` | Register a new external PostgreSQL database. |
+| `DELETE`| `/connections/{id}` | Remove a database connection. |
+| `POST` | `/connections/{id}/test`| Test connectivity and credentials. |
 
-## Admin Endpoints
-Require the `admin` role.
-- `GET /admin/cache/stats` - Redis cache hit/miss statistics.
-- `GET /connections/{connection_id}/migration-status` - Check background re-encryption status.
+---
 
-## Health Probes
-- `GET /health/live` - Application is running.
-- `GET /health/ready` - Application is connected to Redis and PostgreSQL.
-- `GET /version` - Returns current API version.
+## Queries
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/query/execute` | Execute a SQL query against a connection. Runs through all 6 security layers. |
+| `POST` | `/query/dry-run` | Preview the query pipeline (cost, cache status) without executing. |
+| `GET` | `/query/budget` | View your remaining daily query budget. |
+| `GET` | `/query/history` | View paginated query history for the current user. |
+
+---
+
+## Schema & Intelligence
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/connections/{id}/schema`| Retrieve full schema metadata (tables, columns, types, FKs). |
+| `POST`| `/connections/{id}/scan` | Trigger a background PII scan to find sensitive columns. |
+| `POST`| `/ai/nl-to-sql` | Translate natural language to SQL based on schema context. |
+| `POST`| `/ai/explain` | Get a plain-English explanation of a SQL query. |
+| `POST`| `/ai/insights` | Get AI-generated data insights from query results. |
+| `POST`| `/ai/schema-chat` | Ask natural language questions about the database structure. |
+
+---
+
+## Encryption
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/connections/{id}/encryption` | Configure a column for envelope encryption. |
+| `POST` | `/encryption/rotate` | Trigger Key Rotation (Generates new DEKs and starts migration). |
+| `GET` | `/connections/{id}/migration-status` | Check the background re-encryption status. |
+
+---
+
+## Admin
+*(Requires `admin` role)*
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/admin/audit` | View the global asynchronous audit trail. |
+| `GET` | `/admin/slow-queries` | View queries that exceeded the 200ms threshold. |
+| `POST` | `/admin/ip-rules` | Add an IP address to the allow/block list. |
+| `GET` | `/admin/ip-rules` | List all IP rules. |
+| `POST` | `/admin/whitelist` | Whitelist specific queries to bypass AI filters. |
+| `GET` | `/admin/compliance-report`| Export security and encryption compliance data (JSON/CSV). |
+
+---
+
+## Observability & Health
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/metrics/live` | Real-time Prometheus metrics, latency, and cache hit ratios. |
+| `GET` | `/metrics/heatmap` | Most frequently accessed tables across the system. |
+| `GET` | `/health` | Lightweight HTTP 200 OK for load balancers. |
+| `GET` | `/status` | Deep health check (Verifies PG Primary, Replica, Redis, and Groq). |
+| `GET` | `/version` | Returns the current Gateway version and build hash. |
