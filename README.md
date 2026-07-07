@@ -46,22 +46,48 @@ Argus is a **SQL Intelligence Gateway** that acts as a trusted intermediary betw
 
 ## Architecture: 6 Layers
 
-```
-Request
-  ↓
-[LAYER 1] Security         → IP filter, auth, validation, rate limit, RBAC, honeypot
-  ↓
-[LAYER 2] Performance      → Cache check, fingerprinting, cost estimation, budget check
-  ↓
-[LAYER 3] Execution        → Circuit breaker, timeout, retry, executor
-  ↓
-[LAYER 4] Result Processing → RBAC masking, encryption, analysis, complexity scoring
-  ↓
-[LAYER 5] Observability    → Audit logging, metrics, heatmap, slow query alerts
-  ↓
-[LAYER 6] AI Intelligence  → NL→SQL, query explanation, optimization hints
-  ↓
-Response
+## Architecture: 6 Layers
+
+```mermaid
+graph TD
+    Client((Request)) --> L1
+    L1[Layer 1: Security] --> L2[Layer 2: Performance]
+    L2 --> L3[Layer 3: Execution]
+    L3 --> L4[Layer 4: Result Processing]
+    L4 --> L5[Layer 5: Observability]
+    L5 --> L6[Layer 6: AI Intelligence]
+    L6 --> Resp((Response))
+
+    subgraph Security
+        L1 -.-> IP[IP Filter & Auth]
+        L1 -.-> RBAC[RBAC & Honeypot]
+        L1 -.-> RL[Rate Limit]
+    end
+
+    subgraph Performance
+        L2 -.-> Cache[Query Caching]
+        L2 -.-> Budget[Cost Estimation]
+    end
+
+    subgraph Execution
+        L3 -.-> CB[Circuit Breaker]
+        L3 -.-> Exec[Query Executor]
+    end
+
+    subgraph "Result Processing"
+        L4 -.-> Mask[Data Masking]
+        L4 -.-> Encrypt[Encryption]
+    end
+
+    subgraph Observability
+        L5 -.-> Audit[Audit Logging]
+        L5 -.-> Metrics[Prometheus Metrics]
+    end
+
+    subgraph "AI Intelligence"
+        L6 -.-> NLSQL[NL to SQL]
+        L6 -.-> Explain[Query Explainer]
+    end
 ```
 
 ---
