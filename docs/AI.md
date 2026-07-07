@@ -6,7 +6,7 @@ Argus heavily leverages LLMs (primarily Groq's `llama-3.1-8b-instant`) to bridge
 
 ```mermaid
 graph TD
-    NL[User: "Show top users"] --> RATE[AI Rate Limiter]
+    NL["User: 'Show top users'"] --> RATE[AI Rate Limiter]
     RATE --> GUARD[Topic Guardrail]
     GUARD --> PROMPT[Inject Schema Context]
     PROMPT --> LLM[Groq LLM]
