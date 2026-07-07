@@ -11,6 +11,6 @@ def require_admin(user=Depends(get_current_user)):
     return user
 
 @router.get("/live")
-async def live_metrics(request: Request, user=Depends(require_admin)):
-    """Live metrics — admin only. Returns request counts, latency, cache hit rates, error rates."""
+async def live_metrics(request: Request):
+    """Live metrics. Returns request counts, latency, cache hit rates, error rates."""
     return await get_live_metrics(request.app.state.redis)
