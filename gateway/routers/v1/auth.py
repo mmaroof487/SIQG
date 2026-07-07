@@ -127,7 +127,7 @@ async def login(request: Request, response: Response, credentials: LoginRequest)
     logger.info(f"Login successful: {credentials.username} (role={role_value})")
 
     response.set_cookie(
-        key="token",
+        key="argus_token",
         value=token,
         httponly=True,
         samesite="lax",  # or strict, but lax is safer for cross-origin local dev
@@ -182,7 +182,7 @@ async def register(request: Request, response: Response, data: RegisterRequest):
             logger.info(f"New user registered: {data.username} (role={role_value})")
 
             response.set_cookie(
-                key="token",
+                key="argus_token",
                 value=token,
                 httponly=True,
                 samesite="lax",
@@ -217,7 +217,7 @@ async def refresh_token(request: Request, response: Response):
     from config import settings as _settings
 
     # Extract token from cookie or Authorization header
-    token = request.cookies.get("token")
+    token = request.cookies.get("argus_token")
     if not token:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
@@ -280,7 +280,7 @@ async def refresh_token(request: Request, response: Response):
     logger.info(f"Token refreshed for: {user.username} (role={role_value})")
 
     response.set_cookie(
-        key="token",
+        key="argus_token",
         value=new_token,
         httponly=True,
         samesite="lax",
@@ -295,5 +295,28 @@ async def refresh_token(request: Request, response: Response):
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("token", httponly=True, samesite="lax", secure=True)
-    return {"ok": True}
+    response.delete_cookie("argus_token", httponly=True, samesite="lax", secure=True)
+    return {"ok": True, "message": "Successfully logged out."}
+
+
+from fastapi import Depends
+from middleware.security.auth import get_current_user
+
+@router.get("/me")
+async def me(request: Request, user: dict = Depends(get_current_user)):
+    """Get current user details."""
+    async with PrimarySession() as session:
+        import uuid
+        uid = uuid.UUID(request.state.user_id)
+        stmt = select(User).where(User.id == uid)
+        result = await session.execute(stmt)
+        user_record = result.scalars().first()
+    
+    if not user_record:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return {
+        "user_id": str(user_record.id),
+        "username": user_record.username,
+        "role": user_record.role.value if hasattr(user_record.role, "value") else str(user_record.role)
+    }

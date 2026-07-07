@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     # === APP ===
     secret_key: str
     jwt_expiry_minutes: int = 60
-    environment: str = "development"
-    allowed_origins: List[str] = ["http://localhost:5173", "http://localhost"]
+    environment: str = "production"
+    allowed_origins: str = "http://localhost:5173,http://localhost"
 
     # === DATABASE ===
     db_primary_url: str
@@ -53,8 +53,9 @@ class Settings(BaseSettings):
     brute_force_lockout_minutes: int = 15
 
     # === ENCRYPTION ===
-    encryption_key: str
-    encrypt_columns: str = "ssn,credit_card"
+    key_provider: str = "env"  # Options: "env", "file", "vault", "aws_kms", "azure_kv"
+    encryption_key: str = ""
+    encrypt_columns: str = "ssn,credit_card,password"
 
     # === HONEYPOT ===
     honeypot_tables: str = "secret_keys,admin_passwords"
@@ -64,7 +65,7 @@ class Settings(BaseSettings):
         "admin": {
             "tables": "*",
             "columns": "*",
-            "operations": ["SELECT", "INSERT", "UPDATE", "DELETE"]
+            "operations": ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP"]
         },
         "readonly": {
             "tables": "*",
@@ -138,9 +139,16 @@ class Settings(BaseSettings):
             "guest": self.rate_limit_guest_per_minute,
         }
 
+
+
+    @property
+    def allowed_origins_list(self) -> List[str]:
+        """Parse comma-separated allowed origins."""
+        return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
     @property
     def encrypt_columns_list(self) -> List[str]:
-        """Parse comma-separated encryption columns."""
+        """Parse comma-separated encrypt columns."""
         return [c.strip() for c in self.encrypt_columns.split(",") if c.strip()]
 
     @property
@@ -157,7 +165,7 @@ class Settings(BaseSettings):
         except json.JSONDecodeError:
             logger.warning("Failed to parse RBAC roles JSON, using defaults")
             return {
-                "admin": {"tables": "*", "columns": "*", "operations": ["SELECT", "INSERT", "UPDATE", "DELETE"]},
+                "admin": {"tables": "*", "columns": "*", "operations": ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP"]},
                 "readonly": {"tables": "*", "columns": "*", "operations": ["SELECT"]},
                 "guest": {"tables": ["public_data"], "columns": ["id", "name", "created_at"], "operations": ["SELECT"]}
             }

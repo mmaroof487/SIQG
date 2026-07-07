@@ -67,12 +67,21 @@ def fingerprint_cache_key(query: str) -> str:
 
 def extract_tables_from_query(query: str) -> Tuple[str, ...]:
     """
-    Rough extraction of table names from query.
-    Used for cache invalidation when tables are written to.
-    
-    This is a simple regex-based approach. For production, use sqlparse.
+    Robust extraction of table names from query using sqlglot.
+    Used for cache invalidation and honeypot checks.
     """
-    # Find FROM and JOIN clauses
-    pattern = r'(?:FROM|JOIN)\s+(\w+)'
-    matches = re.findall(pattern, query, re.IGNORECASE)
-    return tuple(set(m.lower() for m in matches))
+    try:
+        import sqlglot
+        from sqlglot import exp
+        
+        parsed = sqlglot.parse_one(query, read="postgres")
+        tables = set()
+        for table in parsed.find_all(exp.Table):
+            if table.name:
+                tables.add(table.name.lower())
+        return tuple(tables)
+    except Exception:
+        # Fallback to regex if sqlglot fails
+        pattern = r'(?:FROM|JOIN|INTO|UPDATE)\s+([a-zA-Z0-9_]+)'
+        matches = re.findall(pattern, query, re.IGNORECASE)
+        return tuple(set(m.lower() for m in matches))

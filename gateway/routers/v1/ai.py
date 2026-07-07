@@ -308,7 +308,7 @@ async def _fetch_schema_for_llm(connection_id: str, request: Request, user) -> s
     """Fetch database schema structure to inject into the LLM prompt."""
     try:
         if not connection_id or connection_id == "default":
-            from database.core import PrimarySession
+            from utils.db import PrimarySession
             from sqlalchemy import text
             query = """
             SELECT c.table_schema, c.table_name, c.column_name, c.data_type
@@ -796,6 +796,7 @@ async def nl_to_sql(
 
     try:
         logger.info(f"[{trace_id}] NL→SQL: {body.question[:100]}")
+        generated_sql = ""
 
         # GUARDRAIL 1: Check for semantic patterns BEFORE calling LLM
         # This prevents LLM from making semantic mistakes (e.g., "top 5" → LIMIT 50)
@@ -848,10 +849,14 @@ async def nl_to_sql(
             generated_sql = generated_sql.rstrip(";") + " LIMIT 1000"
             logger.debug(f"[{trace_id}] Injected LIMIT 1000 into query: {generated_sql}")
 
+        # Execute through standard query pipeline to enforce RBAC, guards, etc.
+        query_req = QueryRequest(query=generated_sql, connection_id=body.connection_id)
+        result = await execute_query(request=request, payload=query_req, user=user)
+
         return NLResponse(
             original_question=body.question,
             generated_sql=generated_sql,
-            result=None,
+            result=result if isinstance(result, dict) else result.dict() if hasattr(result, "dict") else {"status": "success"},
             status="success",
         )
 
@@ -1074,7 +1079,7 @@ async def schema_chat(body: SchemaChatRequest, request: Request, user: dict = De
         elif settings.ai_provider == "groq":
             answer = await call_groq(system_instructions, user_message)
         else:
-            answer = await call_mock_ai(system_instructions, user_message)
+            answer = await call_llm_mock(system_instructions, user_message)
             
         if answer.startswith("ERROR:"):
             raise HTTPException(status_code=500, detail=answer)

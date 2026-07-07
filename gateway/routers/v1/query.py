@@ -22,11 +22,12 @@ from middleware.security.validator import validate_query
 from middleware.security.rate_limiter import check_rate_limit
 from middleware.security.rbac import check_rbac, apply_rbac_masking, check_time_based_access
 from middleware.security.encryption import encrypt_query_values, decrypt_rows, encrypt_value, decrypt_value
+from middleware.security.query_encryptor import QueryEncryptor
 from middleware.performance.fingerprinter import fingerprint_query, extract_tables_from_query
 from middleware.performance.cache import check_cache, write_cache, invalidate_table_cache
 from middleware.performance.cost_estimator import estimate_query_cost
 from middleware.performance.auto_limit import inject_limit_clause
-from middleware.performance.budget import check_budget, deduct_budget
+from middleware.performance.budget import check_budget, deduct_budget, refund_budget
 from middleware.performance.complexity import score_complexity
 from middleware.observability.metrics import increment, record_latency
 from middleware.observability.heatmap import record_table_access
@@ -92,7 +93,9 @@ async def execute_query(
 
     # Phase B: external connection state
     external_conn = None
-    encrypted_cols = settings.encrypt_columns_list  # default: env config
+    encrypted_cols = []   # legacy flat list (internal DB – no env-based encryption)
+    _encryptor: QueryEncryptor | None = None   # new AST-based encryptor (external connections)
+    dek: bytes | None = None
     allow_ddl = False  # DDL blocked by default on internal connection
     conn_scope = "default"  # used in cache key to isolate per-connection caches
 
@@ -122,7 +125,13 @@ async def execute_query(
                 raise HTTPException(status_code=404, detail="Connection not found")
 
             # Decrypt connection string and open external asyncpg connection
-            conn_str = decrypt_value(user_db.conn_str_enc)
+            from middleware.security.key_manager import key_manager
+            dek = None
+            if getattr(user_db, "encrypted_dek", None):
+                dek = await key_manager.get_dek(str(user_db.id), user_db.key_version, user_db.encrypted_dek)
+                conn_str = decrypt_value(user_db.conn_str_enc, dek)
+            else:
+                conn_str = decrypt_value(user_db.conn_str_enc)
             try:
                 external_conn = await asyncio.wait_for(
                     asyncpg.connect(conn_str), timeout=10
@@ -133,18 +142,34 @@ async def execute_query(
                     detail={"error": "External connection failed", "detail": str(conn_err)},
                 )
 
-            # Fetch per-connection encrypted column list
-            # (rough table name extraction from query)
+            # Load full {table -> {col}} encryption map for this connection
+            if dek:
+                from utils.connection_manager import get_connection_column_map
+                from models.dek_history import DEKHistory
+                from sqlalchemy import select
+                async with PrimarySession() as db:
+                    _col_map = await get_connection_column_map(db, payload.connection_id)
+                    
+                    historic_deks = {}
+                    hist_rows = await db.execute(select(DEKHistory).where(DEKHistory.database_id == user_db.id))
+                    for row in hist_rows.scalars():
+                        hist_dek = await key_manager.get_dek(str(user_db.id), row.key_version, row.encrypted_dek)
+                        historic_deks[row.key_version] = hist_dek
+                        
+                _encryptor = QueryEncryptor(dek=dek, key_version=user_db.key_version, encrypted_columns=_col_map, historic_deks=historic_deks)
+
+            # Also populate legacy encrypted_cols for backward compat logging
             _tables_hint = extract_tables_from_query(payload.query)
             _table_hint = _tables_hint[0] if _tables_hint else ""
-            async with PrimarySession() as db:
-                encrypted_cols = await get_connection_encrypted_columns(
-                    db, payload.connection_id, _table_hint
-                )
+            encrypted_cols = list(_encryptor.encrypted_columns.get(_table_hint.lower(), [])) if _encryptor else []
 
             # DDL allowed on user-owned external connections
             allow_ddl = True
             logger.info(f"[{trace_id}] Routing to external connection {payload.connection_id}")
+
+        # DDL allowed for admins on default connection as well
+        if getattr(request.state, "role", "") == "admin":
+            allow_ddl = True
 
         # === LAYER 1: SECURITY ===
         # Check IP filter first (before auth)
@@ -162,26 +187,22 @@ async def execute_query(
         logger.debug(f"[{trace_id}] ✅ Honeypot check passed")
 
         # GUARDRAIL: Sensitive field protection (centralized via settings.sensitive_fields)
-        # Block explicit references to sensitive fields in queries
-        # Allow SELECT * (denied columns will be filtered after execution)
-        query_upper = payload.query.strip().upper()
-        is_select = query_upper.startswith("SELECT")
+        # Block explicit references to sensitive fields in SELECT queries
+        # (Allow CREATE TABLE / INSERT so test data can be set up)
         query_lower = payload.query.lower()
-
-        # Check: Does the query explicitly name a sensitive field?
-        has_select_star = "SELECT *" in query_upper or "SELECT  *" in query_upper
-
-        if not has_select_star:
+        if query_lower.startswith("select"):
             import re
+            # Ensure word boundaries so 'assn' doesn't trigger 'ssn'
             for field in settings.sensitive_fields:
-                if re.search(rf"\b{re.escape(field)}\b", clean_query.lower()):
+                pattern = r'\b' + re.escape(field) + r'\b'
+                if re.search(pattern, query_lower):
                     logger.warning(f"[{trace_id}] ⚠️ Sensitive field '{field}' detected in query")
                     raise HTTPException(
                         status_code=403,
                         detail={
                             "blocked": True,
                             "block_reasons": [f"Query references sensitive field: {field}"],
-                            "suggested_fix": "Remove the sensitive field from your query. Safe columns: id, username, email, role, is_active, created_at",
+                            "suggested_fix": "Remove the sensitive field from your query. Safe columns: id, username, email, role, is_active, created_at"
                         }
                     )
 
@@ -204,6 +225,19 @@ async def execute_query(
         is_select = clean_query.strip().upper().startswith("SELECT")
         first_kw = clean_query.strip().split()[0].upper() if clean_query.strip() else "SELECT"
         query_type = first_kw if first_kw else "SELECT"
+        
+        # Check RBAC allowed operations
+        allowed_ops = request.state.permissions.get("operations", ["SELECT"])
+        if query_type not in allowed_ops:
+            logger.warning(f"[{trace_id}] ❌ RBAC violation: {request.state.role} attempted {query_type}")
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "blocked": True,
+                    "block_reasons": [f"Role '{request.state.role}' is not allowed to perform {query_type} operations."],
+                    "suggested_fix": "Use a role with sufficient privileges.",
+                }
+            )
 
         # Generate query fingerprint (normalized hash)
         fingerprint = fingerprint_query(clean_query)
@@ -350,14 +384,12 @@ async def execute_query(
                 logger.debug(f"[{trace_id}] ✅ Injected LIMIT clause")
 
         # Encrypt configured columns before write execution.
-        # For external connections, use per-connection encrypted_cols list.
+        # Use AST-based QueryEncryptor for external connections (one code path),
+        # or skip for internal DB (no env-column encryption by design).
         if not is_select:
-            if external_conn and encrypted_cols:
-                # Pass the per-connection column list to encrypt_query_values
-                from middleware.security.encryption import encrypt_query_values_for_columns
-                execution_query = encrypt_query_values_for_columns(execution_query, encrypted_cols)
-            else:
-                execution_query = encrypt_query_values(execution_query)
+            if _encryptor:
+                execution_query = _encryptor.encrypt_query(execution_query)
+            # internal DB: no automatic column encryption (by architecture decision)
 
         # === DRY RUN MODE ===
         if payload.dry_run:
@@ -404,20 +436,31 @@ async def execute_query(
             # Execute directly on external asyncpg connection
             # Circuit breaker uses per-connection key for external connections
             cb_key = f"argus:circuit:{payload.connection_id}"
+            
+            # Determine timeout based on role
+            role = getattr(request.state, "role", "guest")
+            timeout_seconds = settings.admin_query_timeout_seconds if role == "admin" else settings.query_timeout_seconds
+            
             try:
                 if is_select:
-                    raw_rows = await external_conn.fetch(execution_query)
+                    raw_rows = await asyncio.wait_for(external_conn.fetch(execution_query), timeout=timeout_seconds)
                     rows_dict = [dict(row) for row in raw_rows]
-                    # Decrypt encrypted columns using per-connection config
-                    if encrypted_cols:
-                        from middleware.security.encryption import decrypt_rows_for_columns
-                        rows_dict = decrypt_rows_for_columns(rows_dict, encrypted_cols)
+                    # Decrypt encrypted columns using AST encryptor
+                    if _encryptor and affected_tables:
+                        primary_table = affected_tables[0] if affected_tables else ""
+                        rows_dict = _encryptor.decrypt_results(rows_dict, table=primary_table)
                 else:
-                    await external_conn.execute(execution_query)
+                    await asyncio.wait_for(external_conn.execute(execution_query), timeout=timeout_seconds)
                     rows_dict = []
+            except asyncio.TimeoutError:
+                logger.error(f"[{trace_id}] Query timed out after {timeout_seconds}s")
+                raise HTTPException(
+                    status_code=504,
+                    detail=f"Query timed out after {timeout_seconds} seconds"
+                )
             except Exception as ext_err:
                 logger.error(f"[{trace_id}] External connection error: {ext_err}")
-                raise HTTPException(status_code=400, detail="Query execution failed on external connection")
+                raise HTTPException(status_code=400, detail="Query execution failed on the external database. Check query syntax and connection status.")
         else:
             rows, _ = await execute_with_timeout(request, execution_query)
             if is_select:
@@ -445,10 +488,6 @@ async def execute_query(
         if is_select and rows_dict:
             rows_dict = apply_rbac_masking(request.state.role, rows_dict)
             logger.debug(f"[{trace_id}] ✅ PII masking applied")
-
-        # **Deduct Budget** - For SELECT queries, deduct cost from budget
-        if is_select:
-            await deduct_budget(request, request.state.user_id, cost)
 
         # === LAYER 4: OBSERVABILITY + INTELLIGENCE ===
         explain_result = {}
@@ -583,6 +622,13 @@ async def execute_query(
                 "slow_query": is_slow,
                 "index_suggestions": suggestions,
                 "complexity": complexity,
+                "encryption_stats": {
+                    "values_decrypted": _encryptor.values_decrypted if _encryptor else 0,
+                    "columns_decrypted": list(_encryptor.columns_decrypted) if _encryptor else [],
+                    "operation_time_ms": round(_encryptor.decrypt_time_ms, 3) if _encryptor else 0.0,
+                    "algorithm": "AES-256-GCM",
+                    "key_version": _encryptor.key_version if _encryptor else None,
+                },
                 "recommendation": build_query_recommendation(
                     clean_query,
                     complexity,
@@ -597,8 +643,16 @@ async def execute_query(
                         "full_plan": explain_result.get("raw_plan"),
                     },
                     settings.slow_query_threshold_ms,
-                ) if is_select else None,
-            } if is_select else None,
+                ),
+            } if is_select else {
+                "encryption_stats": {
+                    "values_encrypted": _encryptor.values_encrypted if _encryptor else 0,
+                    "columns_encrypted": list(_encryptor.columns_encrypted) if _encryptor else [],
+                    "operation_time_ms": round(_encryptor.encrypt_time_ms, 3) if _encryptor else 0.0,
+                    "algorithm": "AES-256-GCM",
+                    "key_version": _encryptor.key_version if _encryptor else None,
+                }
+            },
         )
 
     except HTTPException as e:
@@ -648,6 +702,12 @@ async def execute_query(
         ))
         raise
     except Exception as e:
+        if 'cost' in locals() and cost > 0 and 'payload' in locals() and getattr(payload, 'query_type', None) == 'select':
+            try:
+                await refund_budget(request, request.state.user_id, cost)
+            except Exception as refund_err:
+                logger.error(f"[{trace_id}] ❌ Budget refund failed: {refund_err}")
+                
         asyncio.create_task(increment(request, "errors"))
         logger.error(f"[{trace_id}] ❌ Error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,6 +1,6 @@
 """SQLAlchemy models for the Multi-Database Workbench (Phase B)."""
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import (
     Column, String, Boolean, DateTime, ForeignKey,
@@ -9,6 +9,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import relationship
 from utils.db import Base
+from .dek_history import DEKHistory
 
 
 class DatabaseType(str, Enum):
@@ -30,6 +31,8 @@ class UserDatabase(Base):
         display_name    - Human-readable label (e.g. "Production Analytics")
         db_type         - Enum: postgres | mysql | sqlite
         conn_str_enc    - AES-256-GCM ciphertext of the raw connection string
+        encrypted_dek   - DEK encrypted with the master wrapping key
+        key_version     - Version of the wrapping key used to encrypt the DEK
         is_active       - Soft delete / disable flag
         created_at      - Creation timestamp (UTC)
         updated_at      - Last update timestamp (UTC)
@@ -50,21 +53,24 @@ class UserDatabase(Base):
     display_name = Column(String(255), nullable=False)
     db_type = Column(String(32), nullable=False, default=DatabaseType.POSTGRES)
     conn_str_enc = Column(Text, nullable=False)  # AES-256-GCM ciphertext
+    encrypted_dek = Column(Text, nullable=True)  # DEK encrypted with wrapping key
+    key_version = Column(Integer, nullable=False, default=1)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
         nullable=False,
     )
 
     # Relationships
-    column_encryption_configs = relationship(
-        "ColumnEncryptionConfig",
+    column_security_configs = relationship(
+        "ColumnSecurity",
         back_populates="user_database",
         cascade="all, delete-orphan",
     )
+    dek_history = relationship("DEKHistory", back_populates="database", cascade="all, delete-orphan")
     connection_permissions = relationship(
         "ConnectionPermissions",
         back_populates="user_database",
@@ -75,43 +81,6 @@ class UserDatabase(Base):
         return f"<UserDatabase id={self.id} name={self.display_name} type={self.db_type}>"
 
 
-class ColumnEncryptionConfig(Base):
-    """
-    Defines which columns on a specific table within a user's external
-    database connection should be AES-256-GCM encrypted at rest via Argus.
-
-    One row per (connection_id, table_name, column_name) triple.
-    """
-    __tablename__ = "column_encryption_configs"
-    __table_args__ = (
-        UniqueConstraint(
-            "connection_id", "table_name", "column_name",
-            name="uq_col_enc_conn_table_col",
-        ),
-    )
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    connection_id = Column(
-        PGUUID(as_uuid=True),
-        ForeignKey("user_databases.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    table_name = Column(String(255), nullable=False)
-    column_name = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-    # Relationship
-    user_database = relationship(
-        "UserDatabase",
-        back_populates="column_encryption_configs",
-    )
-
-    def __repr__(self):
-        return (
-            f"<ColumnEncryptionConfig conn={self.connection_id} "
-            f"table={self.table_name} col={self.column_name}>"
-        )
 
 
 class ConnectionPermissions(Base):
@@ -148,7 +117,7 @@ class ConnectionPermissions(Base):
     # Application code must json.loads/json.dumps when reading/writing.
     allowed_tables = Column(Text, nullable=True)       # JSON list of table names
     allowed_query_types = Column(Text, nullable=True)  # JSON list of query type keywords
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
 
     # Relationship
     user_database = relationship(

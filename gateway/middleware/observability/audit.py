@@ -101,14 +101,10 @@ async def get_audit_logs(
     safe_offset = max(0, offset)
     try:
         async with PrimarySession() as session:
-            stmt = (
-                select(AuditLog)
-                .order_by(AuditLog.created_at.desc())
-                .offset(safe_offset)
-                .limit(safe_limit)
-            )
+            stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
             if user_id:
                 stmt = stmt.where(AuditLog.user_id == user_id)
+            stmt = stmt.offset(safe_offset).limit(safe_limit)
 
             result = await session.execute(stmt)
             rows = result.scalars().all()

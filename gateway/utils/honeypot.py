@@ -20,12 +20,12 @@ async def check_honeypot(request: Request, query: str):
     Uses config-driven table list from settings.honeypot_tables.
     """
     try:
-        # Case-insensitive check against config-driven honeypot table list
-        query_upper = query.upper()
-        honeypot_tables = settings.honeypot_tables_list
+        from middleware.performance.fingerprinter import extract_tables_from_query
+        accessed_tables = extract_tables_from_query(query)
+        honeypot_tables = [t.strip().lower() for t in settings.honeypot_tables_list]
 
         for honeypot_table in honeypot_tables:
-            if honeypot_table.upper() in query_upper:
+            if honeypot_table in accessed_tables:
                 # Get client IP
                 client_ip = request.client.host if request.client else "unknown"
 
@@ -51,5 +51,8 @@ async def check_honeypot(request: Request, query: str):
         raise
     except Exception as e:
         logger.error(f"Honeypot check error: {e}")
-        # Fail open on error - don't block legitimate requests
-        return
+        # Fail closed on error to prevent bypassing security controls
+        raise HTTPException(
+            status_code=500,
+            detail="Security verification failed"
+        )

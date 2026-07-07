@@ -70,10 +70,10 @@ async def execute_with_timeout(
                     # SQLite and other databases may not support statement_timeout
                     pass
 
-                # Execute query. Escape colons to prevent SQLAlchemy from treating them as bind parameters
-                # (which would crash native Postgres casting like ::uuid or JSON ops).
-                safe_query = query.replace(':', '\\:')
-                logger.info(f"[EXECUTOR] Executing: {safe_query[:100]}")
+                import re
+                # Only escape colons that look like SQLAlchemy bind parameters (not :: casts or times)
+                safe_query = re.sub(r'(?<!:):(?=[a-zA-Z_])', r'\:', query)
+                logger.info(f"[EXECUTOR] Executing query of length {len(safe_query)}")
                 result = await asyncio.wait_for(
                     session.execute(text(safe_query)),
                     timeout=timeout_seconds
@@ -83,8 +83,6 @@ async def execute_with_timeout(
                 try:
                     rows = result.fetchall()
                     logger.info(f"[EXECUTOR] fetchall() succeeded - got {len(rows)} rows")
-                    if len(rows) > 0:
-                        logger.info(f"[EXECUTOR] First row: {rows[0]}")
                 except Exception as e:
                     logger.error(f"[EXECUTOR] ❌ fetchall() failed: {type(e).__name__}: {e}")
                     rows = []
@@ -109,6 +107,8 @@ async def execute_with_timeout(
             raise HTTPException(status_code=504, detail="Gateway Timeout")
 
         except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
             last_error = str(e)
             # Retry on transient errors
             if "connection" in str(e).lower() or "timeout" in str(e).lower():
@@ -121,6 +121,7 @@ async def execute_with_timeout(
             else:
                 # Non-transient error, fail immediately
                 logger.error(f"Query execution error: {e}")
+                await record_failure(request)
                 raise HTTPException(status_code=400, detail=str(e)[:100])
 
     # All retries failed

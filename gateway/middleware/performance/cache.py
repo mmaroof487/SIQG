@@ -198,15 +198,17 @@ async def invalidate_table_cache(
 
                 if cache_keys:
                     # Delete all cache keys in one pipeline for efficiency
+                    pipeline = redis.pipeline()
                     for cache_key in cache_keys:
                         # Decode if cache_key is bytes
                         if isinstance(cache_key, bytes):
                             cache_key = cache_key.decode("utf-8")
-                        await redis.delete(cache_key)
+                        pipeline.delete(cache_key)
                         meta_key = cache_key.replace("argus:cache:", "argus:cache_meta:")
-                        await redis.delete(meta_key)
+                        pipeline.delete(meta_key)
                         # optionally clean from valuable_caches to keep it tidy
-                        await redis.zrem("argus:stats:valuable_caches", cache_key)
+                        pipeline.zrem("argus:stats:valuable_caches", cache_key)
+                    await pipeline.execute()
                     deleted_count += len(cache_keys)
 
                 # Continue if cursor is not 0

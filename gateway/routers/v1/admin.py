@@ -478,6 +478,41 @@ async def get_compliance_report(
     successful_queries = audit_data[1] if audit_data and audit_data[1] else 0
     error_queries = (total_queries - successful_queries) if total_queries else 0
 
+    # Pull real security counters from Redis for the period window
+    redis = None
+    try:
+        from fastapi import Request as _Req
+        from utils.redis import get_redis
+        # Access redis from app state — injected via the request passed to require_admin
+        # Fallback: read known Redis keys for current hour/day
+        import time as _time
+        current_bucket = int(_time.time()) // 60
+        # Sum up rate-limit hits and IP-block hits stored as Redis counters
+        # These are written by the middleware but we can read the aggregate keys
+        # Since we don't have a request object here, we use the singleton
+        _redis = await get_redis()
+        try:
+            blocked_raw = await _redis.get("argus:stats:blocked_requests") or "0"
+            rate_limited_raw = await _redis.get("argus:stats:rate_limited") or "0"
+            blocked_requests = int(blocked_raw)
+            rate_limited_count = int(rate_limited_raw)
+        finally:
+            await _redis.aclose()
+    except Exception as redis_err:
+        logger.warning(f"Could not read security counters from Redis: {redis_err}")
+        blocked_requests = 0
+        rate_limited_count = 0
+
+    # Also count failed audit log entries as additional security signal
+    async with PrimarySession() as session:
+        from sqlalchemy import func
+        blocked_in_db_stmt = select(func.count(AuditLog.id)).where(
+            AuditLog.created_at >= cutoff,
+            AuditLog.status == "blocked",
+        )
+        blocked_in_db = (await session.execute(blocked_in_db_stmt)).scalar() or 0
+        blocked_requests += blocked_in_db
+
     report = {
         "period": period,
         "generated_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
@@ -494,8 +529,8 @@ async def get_compliance_report(
             "avg_latency_ms": round(avg_latency_ms, 2),
         },
         "security": {
-            "blocked_requests": 0,  # From IP filtering
-            "rate_limited": 0,  # From rate limiting
+            "blocked_requests": blocked_requests,
+            "rate_limited": rate_limited_count,
         },
     }
 
@@ -535,10 +570,15 @@ async def get_rbac_policies(admin=Depends(require_admin)):
     policies = []
     for role_name, config in roles.items():
         time_rule = time_rules.get(role_name, {})
+        # Use the actual key names from config.py's rbac_roles_json schema
+        tables = config.get("tables", [])
+        columns = config.get("columns", [])
+        operations = config.get("operations", [])
         policies.append({
             "role": role_name,
-            "allowed_tables": config.get("allowed_tables", []),
-            "denied_columns": config.get("denied_columns", []),
+            "allowed_tables": tables if isinstance(tables, list) else [tables],
+            "allowed_columns": columns if isinstance(columns, list) else [columns],
+            "allowed_operations": operations,
             "allowed_hours": time_rule.get("allowed_hours", "24/7"),
             "allowed_weekdays": time_rule.get("allowed_weekdays", ["Any"]),
             "timezone": time_rule.get("timezone", "UTC"),
@@ -548,3 +588,23 @@ async def get_rbac_policies(admin=Depends(require_admin)):
     return policies
 
 
+@router.get("/cache/stats")
+async def get_cache_stats(request: Request, admin=Depends(require_admin)):
+    """Get Redis cache statistics."""
+    redis = request.app.state.redis
+    try:
+        info = await redis.info()
+        return {
+            "status": "ok",
+            "stats": {
+                "used_memory_human": info.get("used_memory_human"),
+                "connected_clients": info.get("connected_clients"),
+                "keyspace_hits": info.get("keyspace_hits"),
+                "keyspace_misses": info.get("keyspace_misses"),
+                "evicted_keys": info.get("evicted_keys"),
+                "total_keys": info.get("db0", {}).get("keys", 0) if "db0" in info else 0,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching cache stats: {e}")
+        raise HTTPException(status_code=500, detail="Could not fetch cache statistics")

@@ -27,8 +27,8 @@ async def _ensure_ttl(redis, budget_key: str):
 
 async def check_budget(request: Request, user_id: str, cost: float):
     """
-    Check if user has sufficient daily query budget remaining.
-    Uses atomic INCRBYFLOAT to prevent race conditions under concurrent load.
+    Atomically check and deduct user's daily query budget.
+    Uses Lua script to prevent TOCTOU race conditions under concurrent load.
     Budget resets at midnight UTC.
 
     Raises: HTTPException (429) if budget exceeded.
@@ -41,12 +41,25 @@ async def check_budget(request: Request, user_id: str, cost: float):
 
     redis = request.app.state.redis
     budget_key = await _budget_key(user_id)
-
-    # Atomically check current usage before committing
-    current_usage = await redis.get(budget_key)
-    current_usage = float(current_usage) if current_usage else 0.0
-
-    if current_usage + cost > settings.daily_budget_default:
+    
+    # Lua script for atomic check-and-deduct
+    # KEYS[1] = budget_key, ARGV[1] = cost, ARGV[2] = limit
+    script = """
+    local current = tonumber(redis.call('get', KEYS[1]) or '0')
+    local cost = tonumber(ARGV[1])
+    local limit = tonumber(ARGV[2])
+    if current + cost > limit then
+        return -1
+    else
+        redis.call('incrbyfloat', KEYS[1], cost)
+        return current + cost
+    end
+    """
+    
+    new_usage = await redis.eval(script, 1, budget_key, cost, settings.daily_budget_default)
+    
+    if new_usage == -1:
+        current_usage = float(await redis.get(budget_key) or 0.0)
         remaining = max(0, settings.daily_budget_default - current_usage)
         logger.warning(
             f"User {user_id} budget exceeded. "
@@ -61,34 +74,29 @@ async def check_budget(request: Request, user_id: str, cost: float):
             ),
         )
 
+    await _ensure_ttl(redis, budget_key)
     logger.debug(
-        f"Budget check passed for {user_id}: "
-        f"{current_usage + cost:.2f} / {settings.daily_budget_default}"
+        f"Budget check and deduction passed for {user_id}: "
+        f"{new_usage:.2f} / {settings.daily_budget_default}"
     )
 
 
 async def deduct_budget(request: Request, user_id: str, cost: float):
     """
-    Deduct cost from user's daily budget using INCRBYFLOAT for atomicity.
-    Called AFTER successful query execution only.
+    Deprecated: check_budget now performs atomic deduction.
+    This function is left as a no-op for backward compatibility.
     """
-    # Admin role gets unlimited budget — no deduction needed
+    pass
+
+async def refund_budget(request: Request, user_id: str, cost: float):
+    """Refund budget if execution fails after check_budget has reserved it."""
     role = getattr(request.state, "role", "guest")
     if role == "admin":
         return
-
+        
     redis = request.app.state.redis
     budget_key = await _budget_key(user_id)
-
-    # Atomic float increment — no GET+SET race condition
-    new_usage = await redis.incrbyfloat(budget_key, cost)
-
-    # Ensure expiry is set (midnight UTC)
-    await _ensure_ttl(redis, budget_key)
-
-    logger.debug(
-        f"Budget deducted: {user_id} cost {cost:.2f}, "
-        f"total {new_usage:.2f} / {settings.daily_budget_default}"
-    )
+    await redis.incrbyfloat(budget_key, -cost)
+    logger.debug(f"Budget refunded for {user_id}: {cost:.2f}")
 
 

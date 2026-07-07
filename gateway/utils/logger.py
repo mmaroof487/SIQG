@@ -1,33 +1,28 @@
 """Structured logging with JSON format."""
-import json
 import logging
 import sys
-from datetime import datetime, timezone
-from typing import Any, Dict
+from pythonjsonlogger import jsonlogger
+from opentelemetry import trace
 
 
-class JSONFormatter(logging.Formatter):
-    """Custom JSON formatter for structured logging."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        """Format log record as JSON."""
-        log_dict: Dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
-            "level": record.levelname,
-            "module": record.module,
-            "message": record.getMessage(),
-        }
+class OTelJsonFormatter(jsonlogger.JsonFormatter):
+    def add_fields(self, log_record, record, message_dict):
+        super().add_fields(log_record, record, message_dict)
         
-        # Attach extra fields if present
-        for field in ["trace_id", "user_id", "latency_ms", "query_fingerprint"]:
+        # Add OpenTelemetry context
+        current_span = trace.get_current_span()
+        if current_span and current_span.is_recording():
+            log_record['trace_id'] = format(current_span.get_span_context().trace_id, '032x')
+            log_record['span_id'] = format(current_span.get_span_context().span_id, '016x')
+            
+        # Add timestamp and level
+        log_record['level'] = record.levelname
+        log_record['module'] = record.module
+        
+        # Attach any extra fields passed in the log record
+        for field in ["user_id", "latency_ms", "query_fingerprint", "connection_id", "event"]:
             if hasattr(record, field):
-                log_dict[field] = getattr(record, field)
-        
-        # Add exception info if present
-        if record.exc_info:
-            log_dict["exception"] = self.formatException(record.exc_info)
-        
-        return json.dumps(log_dict)
+                log_record[field] = getattr(record, field)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -37,7 +32,9 @@ def get_logger(name: str) -> logging.Logger:
     # Only add handler if not already configured
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(JSONFormatter())
+        # Configure format string for pythonjsonlogger
+        formatter = OTelJsonFormatter('%(timestamp)s %(level)s %(name)s %(message)s', rename_fields={"asctime": "timestamp"})
+        handler.setFormatter(formatter)
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
     

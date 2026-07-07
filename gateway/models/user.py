@@ -1,6 +1,6 @@
 """User and authentication models."""
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SAEnum, JSON, Integer
 from sqlalchemy.dialects.postgresql import UUID
 import enum
@@ -24,8 +24,11 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(SAEnum(Role), default=Role.readonly, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime, nullable=True)
+    last_login = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
 
     def __repr__(self):
         return f"<User {self.username}>"
@@ -41,7 +44,7 @@ class APIKey(Base):
     label = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     grace_until = Column(DateTime, nullable=True)  # for rotation grace period
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
     expires_at = Column(DateTime, nullable=True)
 
     # Scoping fields - restrict access to specific tables and operations
@@ -61,7 +64,7 @@ class IPRule(Base):
     ip_address = Column(String(45), nullable=False, index=True)  # IPv6 max length
     rule_type = Column(String(10), nullable=False)  # "allow" or "block"
     created_by = Column(UUID(as_uuid=True), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
     description = Column(String(255), nullable=True)
 
     def __repr__(self):
@@ -76,7 +79,7 @@ class QueryWhitelist(Base):
     query_fingerprint = Column(String(64), nullable=False, unique=True, index=True)  # SHA-256 hex
     description = Column(String(255), nullable=True)
     approved_by = Column(UUID(as_uuid=True), nullable=True)  # User ID who approved
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
     expires_at = Column(DateTime, nullable=True)  # Optional expiration
 
     def __repr__(self):

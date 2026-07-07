@@ -62,7 +62,8 @@ async def test_connection(conn_str: str, timeout: float = 10.0) -> dict:
     except asyncio.TimeoutError:
         return {"ok": False, "error": f"Connection timed out after {timeout}s"}
     except Exception as e:
-        return {"ok": False, "error": str(e)[:300]}
+        logger.error(f"Connection test failed: {e}", exc_info=True)
+        return {"ok": False, "error": f"Connection failed: {e}"}
 
 
 async def get_connection_encrypted_columns(
@@ -82,7 +83,7 @@ async def get_connection_encrypted_columns(
     Returns:
         List of column name strings (may be empty).
     """
-    from models.user_database import ColumnEncryptionConfig
+    from models.column_security import ColumnSecurity
     import uuid
 
     if not table_name:
@@ -93,12 +94,54 @@ async def get_connection_encrypted_columns(
     except ValueError:
         return []
 
-    stmt = select(ColumnEncryptionConfig.column_name).where(
-        ColumnEncryptionConfig.connection_id == conn_uuid,
-        ColumnEncryptionConfig.table_name == table_name,
+    stmt = select(ColumnSecurity.column_name).where(
+        ColumnSecurity.connection_id == conn_uuid,
+        ColumnSecurity.table_name == table_name,
+        ColumnSecurity.is_encrypted == True,  # noqa: E712
     )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def get_connection_column_map(
+    session: AsyncSession,
+    connection_id: str,
+) -> dict[str, set[str]]:
+    """
+    Return a {table_name: {column_name, ...}} map of all encrypted columns
+    for the given connection.  Used by QueryEncryptor to build a full
+    encryption plan without knowing the target table in advance.
+
+    Args:
+        session:       Open SQLAlchemy async session.
+        connection_id: UUID of the UserDatabase connection.
+
+    Returns:
+        dict mapping table name → set of encrypted column names.
+        Empty dict if connection_id is invalid or no encrypted columns.
+    """
+    from models.column_security import ColumnSecurity
+    import uuid
+
+    try:
+        conn_uuid = uuid.UUID(str(connection_id))
+    except ValueError:
+        return {}
+
+    stmt = select(ColumnSecurity).where(
+        ColumnSecurity.connection_id == conn_uuid,
+        ColumnSecurity.is_encrypted == True,  # noqa: E712
+    )
+    result = await session.execute(stmt)
+    rows = result.scalars().all()
+
+    col_map: dict[str, set[str]] = {}
+    for row in rows:
+        tbl = row.table_name.lower()
+        if tbl not in col_map:
+            col_map[tbl] = set()
+        col_map[tbl].add(row.column_name.lower())
+    return col_map
 
 
 async def invalidate_connection_cache(redis, connection_id: str) -> int:

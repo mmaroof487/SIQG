@@ -1,6 +1,6 @@
 """Audit log models."""
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Float, Text
 from sqlalchemy.dialects.postgresql import UUID, JSON
 from utils.db import Base
@@ -26,7 +26,7 @@ class AuditLog(Base):
     rows_returned = Column(Integer, nullable=True)
     cost = Column(Float, nullable=True)
     execution_plan = Column(JSON, nullable=True)  # EXPLAIN ANALYZE output
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False, index=True)
 
     def __repr__(self):
         return f"<AuditLog {self.trace_id} {self.status}>"
@@ -46,7 +46,7 @@ class SlowQuery(Base):
     rows_returned = Column(Integer, nullable=True)
     recommended_index = Column(Text, nullable=True)  # CREATE INDEX DDL
     execution_plan = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False, index=True)
 
     def __repr__(self):
         return f"<SlowQuery {self.trace_id} {self.latency_ms}ms>"
@@ -56,16 +56,15 @@ class SLASnapshot(Base):
     """Hourly SLA metrics snapshot."""
     __tablename__ = "sla_snapshots"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    hour = Column(DateTime, nullable=False, index=True)
-    uptime_percent = Column(Float, nullable=False)  # 0-100
-    p50_latency_ms = Column(Float, nullable=False)
-    p95_latency_ms = Column(Float, nullable=False)
-    p99_latency_ms = Column(Float, nullable=False)
-    total_requests = Column(Integer, nullable=False)
-    failed_requests = Column(Integer, nullable=False)
-    cache_hit_ratio = Column(Float, nullable=False)  # 0-1
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    period_start = Column(DateTime, nullable=False)
+    period_end = Column(DateTime, nullable=False)
+    total_queries = Column(Integer, nullable=False, default=0)
+    successful_queries = Column(Integer, nullable=False, default=0)
+    avg_latency_ms = Column(Integer, nullable=True)
+    p99_latency_ms = Column(Integer, nullable=True)
+    uptime_percent = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), nullable=False)
 
     def __repr__(self):
-        return f"<SLASnapshot {self.hour} {self.uptime_percent}%>"
+        return f"<SLASnapshot {self.period_start} to {self.period_end}>"

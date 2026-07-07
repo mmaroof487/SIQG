@@ -20,7 +20,7 @@ Constraints:
     - Existing pipeline (queries without connection_id) is completely unchanged.
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -30,7 +30,8 @@ from sqlalchemy.orm import selectinload
 
 from middleware.security.auth import get_current_user
 from middleware.security.encryption import encrypt_value, decrypt_value
-from models.user_database import UserDatabase, ColumnEncryptionConfig
+from models.user_database import UserDatabase
+from models.column_security import ColumnSecurity
 from utils.db import PrimarySession
 from utils.logger import get_logger
 from utils.connection_manager import test_connection
@@ -49,6 +50,24 @@ def _safe_user_uuid(user_id: str) -> uuid.UUID:
         return uuid.uuid5(uuid.NAMESPACE_DNS, str(user_id))
 
 
+import re as _re
+_DSN_PATTERN = _re.compile(
+    r"(?:postgresql|postgres|mysql|redis)(?:\+\w+)?://[^@\s]+@[^\s/]+",
+    _re.IGNORECASE,
+)
+
+
+def _sanitize_db_error(err_msg: str, max_len: int = 120) -> str:
+    """Strip any embedded DSNs from error messages before logging.
+
+    asyncpg sometimes includes the full connection string (with password)
+    in error messages.  This helper masks credential portions before they
+    reach log files.
+    """
+    sanitized = _DSN_PATTERN.sub("[REDACTED_DSN]", str(err_msg))
+    return sanitized[:max_len]
+
+
 # ─── Pydantic Schemas ─────────────────────────────────────────────────────────
 
 class ConnectionCreateRequest(BaseModel):
@@ -57,11 +76,14 @@ class ConnectionCreateRequest(BaseModel):
     conn_str: str  # plain-text — will be encrypted before storage
 
 
-class ColumnEncryptionResponse(BaseModel):
+class ColumnSecurityResponse(BaseModel):
     id: int
     connection_id: str
+    schema_name: str
     table_name: str
     column_name: str
+    classification_method: int
+    is_encrypted: bool
     created_at: datetime
 
 
@@ -72,7 +94,7 @@ class ConnectionResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
-    column_encryption_configs: Optional[List[ColumnEncryptionResponse]] = None
+    column_security_configs: Optional[List[ColumnSecurityResponse]] = None
 
 
 class ConnectionTestResponse(BaseModel):
@@ -80,9 +102,12 @@ class ConnectionTestResponse(BaseModel):
     error: Optional[str] = None
 
 
-class ColumnEncryptionCreateRequest(BaseModel):
+class ColumnSecurityCreateRequest(BaseModel):
+    schema_name: str = "public"
     table_name: str
     column_name: str
+    classification_method: int = 3
+    is_encrypted: bool = True
 
 
 class ColumnSchema(BaseModel):
@@ -91,6 +116,8 @@ class ColumnSchema(BaseModel):
     pk: bool
     nullable: bool
     fk: Optional[str] = None
+    is_encrypted: Optional[bool] = False
+    config_id: Optional[int] = None
 
 
 class TableSchema(BaseModel):
@@ -99,7 +126,7 @@ class TableSchema(BaseModel):
 
 
 class SchemaResponse(BaseModel):
-    schema: str
+    database_schema: str
     tables: List[TableSchema]
 
 
@@ -116,13 +143,16 @@ def _check_db_type(db_type: str):
 
 def _conn_to_response(conn: UserDatabase) -> ConnectionResponse:
     configs = []
-    if conn.column_encryption_configs:
-        for c in conn.column_encryption_configs:
-            configs.append(ColumnEncryptionResponse(
+    if conn.column_security_configs:
+        for c in conn.column_security_configs:
+            configs.append(ColumnSecurityResponse(
                 id=c.id,
                 connection_id=str(c.connection_id),
+                schema_name=c.schema_name,
                 table_name=c.table_name,
                 column_name=c.column_name,
+                classification_method=c.classification_method,
+                is_encrypted=c.is_encrypted,
                 created_at=c.created_at
             ))
     return ConnectionResponse(
@@ -132,7 +162,7 @@ def _conn_to_response(conn: UserDatabase) -> ConnectionResponse:
         is_active=conn.is_active,
         created_at=conn.created_at,
         updated_at=conn.updated_at,
-        column_encryption_configs=configs,
+        column_security_configs=configs,
     )
 
 
@@ -152,7 +182,7 @@ async def _get_own_connection(
         raise HTTPException(status_code=400, detail="Invalid connection_id format")
 
     stmt = select(UserDatabase).options(
-        selectinload(UserDatabase.column_encryption_configs)
+        selectinload(UserDatabase.column_security_configs)
     ).where(
         UserDatabase.id == conn_uuid,
         UserDatabase.user_id == user_uuid,
@@ -183,17 +213,28 @@ async def register_connection(
     user_id = request.state.user_id
 
     # Test connection before allowing creation
-    logger.info(f"Testing new connection string during registration: {payload.conn_str}")
+    logger.info("Testing new connection string during registration: [MASKED]")
     test_res = await test_connection(payload.conn_str, timeout=5.0)
     if not test_res.get("ok"):
-        logger.error(f"Connection test failed during registration: {test_res.get('error')}")
+        logger.error(
+            f"Connection test failed during registration: {_sanitize_db_error(test_res.get('error', 'unknown'))}"
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Could not connect to database: {test_res.get('error')}"
         )
 
-    # Encrypt the connection string before storage
-    conn_str_enc = encrypt_value(payload.conn_str)
+    # Generate DEK for this specific connection
+    import os
+    from middleware.security.key_manager import key_manager
+    dek = os.urandom(32)
+    
+    # Encrypt DEK with the master wrapping key
+    wrapping_key = key_manager.get_dek_wrapping_key()
+    encrypted_dek = encrypt_value(dek.hex(), wrapping_key)
+
+    # Encrypt the connection string using the DEK
+    conn_str_enc = encrypt_value(payload.conn_str, dek)
 
     async with PrimarySession() as session:
         new_conn = UserDatabase(
@@ -202,16 +243,18 @@ async def register_connection(
             display_name=payload.display_name.strip(),
             db_type=payload.db_type,
             conn_str_enc=conn_str_enc,
+            encrypted_dek=encrypted_dek,
+            key_version=1,
             is_active=True,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
         session.add(new_conn)
         await session.commit()
         
         # Reload with relationships
         stmt = select(UserDatabase).options(
-            selectinload(UserDatabase.column_encryption_configs)
+            selectinload(UserDatabase.column_security_configs)
         ).where(UserDatabase.id == new_conn.id)
         result = await session.execute(stmt)
         new_conn_loaded = result.scalars().first()
@@ -238,7 +281,7 @@ async def list_connections(
 
     async with PrimarySession() as session:
         stmt = select(UserDatabase).options(
-            selectinload(UserDatabase.column_encryption_configs)
+            selectinload(UserDatabase.column_security_configs)
         ).where(
             UserDatabase.user_id == user_uuid,
         ).order_by(UserDatabase.created_at.desc())
@@ -284,7 +327,7 @@ async def delete_connection(
     async with PrimarySession() as session:
         conn = await _get_own_connection(session, connection_id, str(user_id))
         conn.is_active = False
-        conn.updated_at = datetime.utcnow()
+        conn.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         await session.commit()
         logger.info(f"Connection {connection_id} soft-deleted by user {user_id}")
 
@@ -297,6 +340,29 @@ async def delete_connection(
     except Exception as cache_err:
         logger.warning(f"Cache purge failed for deleted connection {connection_id}: {cache_err}")
 
+@router.put("/{connection_id}/restore", response_model=ConnectionResponse)
+async def restore_connection(
+    connection_id: str,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """
+    Restore (activate) a soft-deleted connection.
+    """
+    user_id = request.state.user_id
+
+    async with PrimarySession() as session:
+        conn = await _get_own_connection(session, connection_id, str(user_id))
+        if conn.is_active:
+            raise HTTPException(status_code=400, detail="Connection is already active")
+            
+        conn.is_active = True
+        conn.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        await session.commit()
+        await session.refresh(conn)
+        logger.info(f"Connection {connection_id} restored by user {user_id}")
+        
+        return _conn_to_response(conn)
 
 @router.post("/{connection_id}/test", response_model=ConnectionTestResponse)
 async def test_connection_endpoint(
@@ -320,7 +386,16 @@ async def test_connection_endpoint(
 
         # Decrypt conn string in memory only — never logged or persisted
         try:
-            plain_conn_str = decrypt_value(conn.conn_str_enc)
+            from middleware.security.key_manager import key_manager
+            
+            # If it's an old connection before DEKs, this will fallback gracefully or fail.
+            # But we added `encrypted_dek` and `key_version` so we expect them.
+            if getattr(conn, "encrypted_dek", None):
+                dek = await key_manager.get_dek(str(conn.id), conn.key_version, conn.encrypted_dek)
+                plain_conn_str = decrypt_value(conn.conn_str_enc, dek)
+            else:
+                # Fallback for existing connections (dev mode only)
+                plain_conn_str = decrypt_value(conn.conn_str_enc)
         except Exception as dec_err:
             logger.error(f"Connection string decryption failed for {connection_id}: {dec_err}")
             return ConnectionTestResponse(
@@ -331,19 +406,19 @@ async def test_connection_endpoint(
     result = await test_connection(plain_conn_str, timeout=10.0)
     logger.info(
         f"Connection test for {connection_id} by user {user_id}: "
-        f"{'OK' if result['ok'] else result.get('error', 'FAIL')}"
+        f"{'OK' if result['ok'] else _sanitize_db_error(result.get('error', 'FAIL'))}"
     )
     return ConnectionTestResponse(**result)
 
 
 @router.post(
     "/{connection_id}/encryption",
-    response_model=ColumnEncryptionResponse,
+    response_model=ColumnSecurityResponse,
     status_code=201,
 )
 async def add_column_encryption(
     connection_id: str,
-    payload: ColumnEncryptionCreateRequest,
+    payload: ColumnSecurityCreateRequest,
     request: Request,
     user=Depends(get_current_user),
 ):
@@ -368,10 +443,11 @@ async def add_column_encryption(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid connection_id format")
 
-        dup_stmt = select(ColumnEncryptionConfig).where(
-            ColumnEncryptionConfig.connection_id == conn_uuid,
-            ColumnEncryptionConfig.table_name == payload.table_name,
-            ColumnEncryptionConfig.column_name == payload.column_name,
+        dup_stmt = select(ColumnSecurity).where(
+            ColumnSecurity.connection_id == conn_uuid,
+            ColumnSecurity.schema_name == payload.schema_name,
+            ColumnSecurity.table_name == payload.table_name,
+            ColumnSecurity.column_name == payload.column_name,
         )
         dup_result = await session.execute(dup_stmt)
         if dup_result.scalars().first():
@@ -383,25 +459,33 @@ async def add_column_encryption(
                 ),
             )
 
-        new_config = ColumnEncryptionConfig(
+        new_config = ColumnSecurity(
             connection_id=conn_uuid,
+            schema_name=payload.schema_name.strip(),
             table_name=payload.table_name.strip(),
             column_name=payload.column_name.strip(),
-            created_at=datetime.utcnow(),
+            classification_method=payload.classification_method,
+            is_encrypted=payload.is_encrypted,
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
         session.add(new_config)
         await session.commit()
         await session.refresh(new_config)
 
+        await request.app.state.redis.delete(f"schema:{connection_id}")
+
         logger.info(
             f"Column encryption added: {connection_id}/"
-            f"{payload.table_name}.{payload.column_name} by user {user_id}"
+            f"{payload.schema_name}.{payload.table_name}.{payload.column_name} by user {user_id}"
         )
-        return ColumnEncryptionResponse(
+        return ColumnSecurityResponse(
             id=new_config.id,
             connection_id=str(new_config.connection_id),
+            schema_name=new_config.schema_name,
             table_name=new_config.table_name,
             column_name=new_config.column_name,
+            classification_method=new_config.classification_method,
+            is_encrypted=new_config.is_encrypted,
             created_at=new_config.created_at,
         )
 
@@ -431,9 +515,9 @@ async def remove_column_encryption(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid connection_id format")
 
-        stmt = select(ColumnEncryptionConfig).where(
-            ColumnEncryptionConfig.id == config_id,
-            ColumnEncryptionConfig.connection_id == conn_uuid,
+        stmt = select(ColumnSecurity).where(
+            ColumnSecurity.id == config_id,
+            ColumnSecurity.connection_id == conn_uuid,
         )
         result = await session.execute(stmt)
         config = result.scalars().first()
@@ -445,6 +529,9 @@ async def remove_column_encryption(
 
         await session.delete(config)
         await session.commit()
+        
+        await request.app.state.redis.delete(f"schema:{connection_id}")
+        
         logger.info(
             f"Column encryption removed: config {config_id} from "
             f"{connection_id} by user {user_id}"
@@ -499,7 +586,12 @@ async def get_connection_schema(
             raise HTTPException(status_code=400, detail="Connection is inactive")
 
         try:
-            plain_conn_str = decrypt_value(conn.conn_str_enc)
+            from middleware.security.key_manager import key_manager
+            if getattr(conn, "encrypted_dek", None):
+                dek = await key_manager.get_dek(str(conn.id), conn.key_version, conn.encrypted_dek)
+                plain_conn_str = decrypt_value(conn.conn_str_enc, dek)
+            else:
+                plain_conn_str = decrypt_value(conn.conn_str_enc)
         except Exception as dec_err:
             logger.error(f"Connection string decryption failed for {connection_id}: {dec_err}")
             raise HTTPException(status_code=500, detail="Failed to decrypt connection credentials")
@@ -509,10 +601,10 @@ async def get_connection_schema(
         import asyncio
         asyncpg_conn = await asyncio.wait_for(asyncpg.connect(plain_conn_str), timeout=10.0)
     except Exception as conn_err:
-        logger.error(f"Failed to connect to target database {connection_id} for schema: {conn_err}")
+        logger.error(f"Failed to connect to target database {connection_id} for schema")
         raise HTTPException(
             status_code=400, 
-            detail=f"Could not connect to database: {str(conn_err)[:200]}"
+            detail="Could not connect to database. Please verify credentials and network access."
         )
 
     try:
@@ -564,6 +656,18 @@ async def get_connection_schema(
     finally:
         await asyncpg_conn.close()
 
+    # Fetch existing encryption configs for this connection
+    async with PrimarySession() as session:
+        from models.column_security import ColumnSecurity
+        sec_stmt = select(ColumnSecurity).where(ColumnSecurity.connection_id == conn_uuid)
+        sec_res = await session.execute(sec_stmt)
+        sec_configs = sec_res.scalars().all()
+        
+    sec_lookup = {
+        f"{c.schema_name}.{c.table_name}.{c.column_name}": c
+        for c in sec_configs
+    }
+
     # Process and group results by schema and table
     schema_map = {}
     for r in rows:
@@ -575,6 +679,8 @@ async def get_connection_schema(
         is_pk = r["is_pk"]
         fk_ref = r["fk_reference"]
 
+        sec = sec_lookup.get(f"{sch_name}.{tbl_name}.{col_name}")
+
         if sch_name not in schema_map:
             schema_map[sch_name] = {}
         if tbl_name not in schema_map[sch_name]:
@@ -585,7 +691,9 @@ async def get_connection_schema(
             "type": col_type,
             "pk": is_pk,
             "nullable": nullable,
-            "fk": fk_ref
+            "fk": fk_ref,
+            "is_encrypted": sec.is_encrypted if sec else False,
+            "config_id": sec.id if sec else None
         })
 
     # Collect all tables across all schemas for inference
@@ -649,7 +757,7 @@ async def get_connection_schema(
                 "columns": columns
             })
         response_data.append({
-            "schema": sch_name,
+            "database_schema": sch_name,
             "tables": tbl_list
         })
 
@@ -662,7 +770,7 @@ async def get_connection_schema(
     return response_data
 
 class IntelligenceRequest(BaseModel):
-    schema_json: str
+    schema_metadata: str
 
 @router.post("/{connection_id}/intelligence")
 async def get_connection_intelligence(
@@ -685,7 +793,7 @@ async def get_connection_intelligence(
         await _get_own_connection(session, connection_id, str(request.state.user_id))
 
     redis_client = request.app.state.redis
-    schema_hash = hashlib.sha256(payload.schema_json.encode('utf-8')).hexdigest()
+    schema_hash = hashlib.sha256(payload.schema_metadata.encode('utf-8')).hexdigest()
     cache_key = f"argus:intelligence:{connection_id}:{schema_hash}"
 
     try:
@@ -697,7 +805,7 @@ async def get_connection_intelligence(
         logger.warning(f"Intelligence cache read failed: {e}")
 
     logger.info(f"Intelligence cache miss for {connection_id}. Calling LLM...")
-    prompt = f"Analyze this schema:\n{payload.schema_json}"
+    prompt = f"Analyze this schema:\n{payload.schema_metadata}"
     result = await call_llm(SYSTEM_PROMPT_SCHEMA_INTELLIGENCE, prompt)
     
     if result.startswith("ERROR:"):
@@ -738,4 +846,369 @@ async def hard_delete_connection(
         await request.app.state.redis.delete(f"schema:{connection_id}")
     except Exception as cache_err:
         logger.warning(f"Cache purge failed for deleted connection {connection_id}: {cache_err}")
+
+
+# ── Sensitivity Scan ──────────────────────────────────────────────────────────
+
+class ScanRequest(BaseModel):
+    """Options for the sensitivity scan."""
+    auto_apply: bool = False   # If True, persist detected columns as ColumnSecurity rows
+    run_ai: bool = False       # If True, run AI tier (Tier 3) in addition to regex/dict
+
+
+class ScanColumnResult(BaseModel):
+    schema_name: str
+    table_name: str
+    column_name: str
+    classification_method: int
+    label: str
+    confidence: float
+
+
+class ScanResponse(BaseModel):
+    connection_id: str
+    scanned_columns: int
+    candidates: List[ScanColumnResult]
+    auto_applied: bool
+    applied_count: int
+
+
+@router.post("/{connection_id}/scan", response_model=ScanResponse)
+async def scan_connection_for_pii(
+    connection_id: str,
+    payload: ScanRequest,
+    request: Request,
+    user=Depends(get_current_user),
+):
+    """
+    Scan an external database's schema for PII / sensitive columns.
+
+    Runs a three-tier detector:
+      Tier 1 — Column name regex patterns  (e.g. ssn, email, credit_card)
+      Tier 2 — Dictionary keyword match    (e.g. token, api_key, salary)
+      Tier 3 — AI heuristics               (optional, requires run_ai=True)
+
+    If auto_apply=True, detected columns are persisted as ColumnSecurity rows
+    with is_encrypted=False (user must explicitly enable encryption per column).
+    """
+    import json
+    import asyncio
+    import asyncpg as _asyncpg
+
+    from middleware.security.sensitivity_scanner import scan_columns
+    from models.column_security import ColumnSecurity
+
+    user_id = request.state.user_id
+    redis_client = request.app.state.redis
+
+    # ── Load and verify connection ownership ──────────────────────────────────
+    async with PrimarySession() as session:
+        conn = await _get_own_connection(session, connection_id, str(user_id))
+        if not conn.is_active:
+            raise HTTPException(status_code=400, detail="Connection is inactive")
+
+        try:
+            from middleware.security.key_manager import key_manager
+            if getattr(conn, "encrypted_dek", None):
+                dek = await key_manager.get_dek(str(conn.id), conn.key_version, conn.encrypted_dek)
+                plain_conn_str = decrypt_value(conn.conn_str_enc, dek)
+            else:
+                plain_conn_str = decrypt_value(conn.conn_str_enc)
+        except Exception as dec_err:
+            logger.error(f"Scan: decryption failed for {connection_id}: {dec_err}")
+            raise HTTPException(status_code=500, detail="Failed to decrypt connection credentials")
+
+    # ── Fetch schema from target database ─────────────────────────────────────
+    try:
+        schema_cache_key = f"schema:{connection_id}"
+        cached = await redis_client.get(schema_cache_key)
+        if cached:
+            cached_schemas = json.loads(cached)
+            schema_rows = []
+            for sch in cached_schemas:
+                sch_name = sch.get("database_schema") or "public"
+                for tbl in sch.get("tables", []):
+                    tbl_name = tbl.get("name")
+                    for col in tbl.get("columns", []):
+                        schema_rows.append({
+                            "schema_name": sch_name,
+                            "table_name": tbl_name,
+                            "column_name": col.get("name"),
+                            "data_type": col.get("type")
+                        })
+        else:
+            asyncpg_conn = await asyncio.wait_for(_asyncpg.connect(plain_conn_str), timeout=10.0)
+            try:
+                raw = await asyncpg_conn.fetch("""
+                    SELECT
+                        table_schema  AS schema_name,
+                        table_name,
+                        column_name,
+                        data_type
+                    FROM information_schema.columns
+                    WHERE table_schema NOT IN ('information_schema', 'pg_catalog')
+                    ORDER BY table_schema, table_name, ordinal_position
+                """)
+                schema_rows = [dict(r) for r in raw]
+            finally:
+                await asyncpg_conn.close()
+    except Exception as fetch_err:
+        logger.error(f"Scan: schema fetch failed for {connection_id}: {_sanitize_db_error(str(fetch_err))}")
+        raise HTTPException(status_code=400, detail="Could not connect to database for scan")
+
+    # ── Run sensitivity scanner ───────────────────────────────────────────────
+    results = await scan_columns(schema_rows, run_ai=payload.run_ai)
+
+    # ── Optionally persist as ColumnSecurity rows ─────────────────────────────
+    applied_count = 0
+    if payload.auto_apply and results:
+        import uuid as _uuid
+        conn_uuid = _uuid.UUID(connection_id)
+        local_seen = set()
+        
+        async with PrimarySession() as session:
+            for r in results:
+                col_key = (r.schema_name, r.table_name, r.column_name)
+                if col_key in local_seen:
+                    continue
+                local_seen.add(col_key)
+                
+                # Upsert: insert if not exists using ON CONFLICT DO NOTHING
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                stmt = pg_insert(ColumnSecurity).values(
+                    connection_id=conn_uuid,
+                    schema_name=r.schema_name,
+                    table_name=r.table_name,
+                    column_name=r.column_name,
+                    classification_method=int(r.classification_method),
+                    is_encrypted=False,
+                    created_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                ).on_conflict_do_nothing(
+                    index_elements=['connection_id', 'schema_name', 'table_name', 'column_name']
+                )
+                res = await session.execute(stmt)
+                if res.rowcount > 0:
+                    applied_count += 1
+            
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Failed to commit scan results: {e}")
+            
+        await request.app.state.redis.delete(f"schema:{connection_id}")
+
+    logger.info(
+        f"Scan complete: connection={connection_id} "
+        f"scanned={len(schema_rows)} candidates={len(results)} applied={applied_count}"
+    )
+
+    return ScanResponse(
+        connection_id=connection_id,
+        scanned_columns=len(schema_rows),
+        candidates=[ScanColumnResult(**r.to_dict()) for r in results],
+        auto_applied=payload.auto_apply,
+        applied_count=applied_count,
+    )
+
+
+class RotateKeyResponse(BaseModel):
+    connection_id: str
+    old_version: int
+    new_version: int
+    message: str
+
+
+@router.post("/{connection_id}/rotate-key", response_model=RotateKeyResponse)
+async def rotate_key(
+    connection_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Rotate the Data Encryption Key (DEK) for a connection.
+    This generates a new DEK, stores the old one in dek_history, and triggers a background migration.
+    """
+    user_uuid = _safe_user_uuid(current_user["sub"])
+    conn_uuid = _safe_user_uuid(connection_id)
+
+    async with PrimarySession() as session:
+        stmt = select(UserDatabase).where(UserDatabase.id == conn_uuid)
+        result = await session.execute(stmt)
+        conn = result.scalars().first()
+
+        if not conn:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        # Basic ownership check
+        if conn.user_id != user_uuid:
+            raise HTTPException(status_code=403, detail="Not authorized to rotate this connection's key")
+
+        old_version = conn.key_version
+        old_encrypted_dek = conn.encrypted_dek
+
+        # 1. Store old DEK in history
+        from models.dek_history import DEKHistory
+        history_entry = DEKHistory(
+            database_id=str(conn.id),
+            key_version=old_version,
+            encrypted_dek=old_encrypted_dek,
+        )
+        session.add(history_entry)
+
+        # 2. Rotate DEK in KeyManager
+        from middleware.security.key_manager import key_manager
+        old_dek = await key_manager.get_dek(str(conn.id), old_version, old_encrypted_dek)
+        new_version, new_encrypted_dek = await key_manager.rotate_dek(str(conn.id), old_version)
+        new_dek = await key_manager.get_dek(str(conn.id), new_version, new_encrypted_dek)
+
+        # 3. Update UserDatabase
+        from middleware.security.encryption import decrypt_value, encrypt_value
+        plain_conn_str = decrypt_value(conn.conn_str_enc, old_dek)
+        conn.conn_str_enc = encrypt_value(plain_conn_str, new_dek)
+        
+        conn.key_version = new_version
+        conn.encrypted_dek = new_encrypted_dek
+
+        # 4. Log the rotation event
+        from models.encryption_audit import EncryptionAuditLog
+        audit_log = EncryptionAuditLog(
+            database_id=str(conn.id),
+            user_id=str(user_uuid),
+            event_type="key_rotation",
+            details={
+                "old_version": old_version,
+                "new_version": new_version,
+            }
+        )
+        session.add(audit_log)
+
+        await session.commit()
+
+        logger.info(f"Key rotated for connection {connection_id}. Version {old_version} -> {new_version}")
+
+        # Trigger background re-encryption job if migration_worker is available.
+        # The key rotation DB record is already committed above, so failure here
+        # does not roll back the rotation — existing encrypted data stays accessible
+        # at the old key version until the migration job runs.
+        try:
+            from workers.migration_worker import trigger_reencryption_job
+            await trigger_reencryption_job(str(conn.id), old_version, new_version)
+            migration_msg = "Background re-encryption migration scheduled."
+        except ImportError:
+            logger.warning(
+                f"[rotate-key] workers.migration_worker not available — "
+                f"re-encryption migration NOT scheduled for connection {connection_id}. "
+                f"Existing data encrypted under key v{old_version} will remain until "
+                f"migration is implemented."
+            )
+            migration_msg = "Key rotated. Re-encryption migration worker not yet available — data at old key version remains readable."
+        except Exception as mig_err:
+            logger.error(f"[rotate-key] Migration scheduling failed: {mig_err}")
+            migration_msg = "Key rotated. Migration scheduling failed — check server logs."
+        
+        return RotateKeyResponse(
+            connection_id=connection_id,
+            old_version=old_version,
+            new_version=new_version,
+            message=migration_msg,
+        )
+
+
+class EncryptionAuditLogResponse(BaseModel):
+    id: str
+    database_id: str
+    user_id: str
+    event_type: str
+    details: dict | None
+    created_at: datetime
+
+
+@router.get("/{connection_id}/encryption-audit", response_model=list[EncryptionAuditLogResponse])
+async def get_encryption_audit_logs(
+    connection_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    limit: int = 50,
+):
+    """
+    Fetch encryption audit logs for a connection.
+    """
+    user_uuid = _safe_user_uuid(current_user["sub"])
+    conn_uuid = _safe_user_uuid(connection_id)
+
+    async with PrimarySession() as session:
+        # Check ownership
+        stmt = select(UserDatabase).where(UserDatabase.id == conn_uuid)
+        result = await session.execute(stmt)
+        conn = result.scalars().first()
+
+        if not conn or conn.user_id != user_uuid:
+            raise HTTPException(status_code=403, detail="Not authorized to access this connection's logs")
+
+        from models.encryption_audit import EncryptionAuditLog
+        log_stmt = (
+            select(EncryptionAuditLog)
+            .where(EncryptionAuditLog.database_id == str(conn.id))
+            .order_by(EncryptionAuditLog.created_at.desc())
+            .limit(limit)
+        )
+        logs = await session.execute(log_stmt)
+        
+        return [
+            EncryptionAuditLogResponse(
+                id=log.id,
+                database_id=log.database_id,
+                user_id=log.user_id,
+                event_type=log.event_type,
+                details=log.details,
+                created_at=log.created_at,
+            )
+            for log in logs.scalars().all()
+        ]
+
+@router.get("/{connection_id}/migration-status")
+async def get_migration_status(
+    connection_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Get the latest key rotation migration status for this connection.
+    """
+    user_uuid = _safe_user_uuid(current_user["sub"])
+    conn_uuid = _safe_user_uuid(connection_id)
+
+    async with PrimarySession() as session:
+        # Check ownership
+        stmt = select(UserDatabase).where(UserDatabase.id == conn_uuid)
+        result = await session.execute(stmt)
+        conn = result.scalars().first()
+
+        if not conn or conn.user_id != user_uuid:
+            raise HTTPException(status_code=403, detail="Not authorized to access this connection")
+
+        from models.migration_job import MigrationJob
+        job_stmt = (
+            select(MigrationJob)
+            .where(MigrationJob.database_id == str(conn.id))
+            .order_by(MigrationJob.created_at.desc())
+            .limit(1)
+        )
+        job_res = await session.execute(job_stmt)
+        latest_job = job_res.scalars().first()
+
+        if not latest_job:
+            return {"status": "none", "message": "No migrations found for this connection."}
+
+        return {
+            "job_id": latest_job.id,
+            "status": latest_job.status,
+            "old_key_version": latest_job.old_key_version,
+            "new_key_version": latest_job.new_key_version,
+            "processed_records": latest_job.processed_records,
+            "error_message": latest_job.error_message,
+            "created_at": latest_job.created_at.isoformat(),
+            "updated_at": latest_job.updated_at.isoformat() if latest_job.updated_at else None,
+        }
 
