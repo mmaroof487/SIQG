@@ -252,24 +252,7 @@ graph LR
 
 ---
 
-## Screenshots
 
-<p align="center">
-  <i>(Replace placeholders with actual repository assets)</i><br>
-  <b>Dashboard Overview</b><br>
-  <img src="docs/assets/dashboard.png" width="800" alt="Dashboard Screenshot" /><br><br>
-  
-  <b>Interactive Schema Explorer</b><br>
-  <img src="docs/assets/schema-explorer.png" width="800" alt="Schema Explorer Screenshot" /><br><br>
-  
-  <b>Query Studio & Execution Plan</b><br>
-  <img src="docs/assets/query-studio.png" width="800" alt="Query Studio Screenshot" /><br><br>
-  
-  <b>Security Center & Policy Management</b><br>
-  <img src="docs/assets/security-center.png" width="800" alt="Security Center Screenshot" />
-</p>
-
----
 
 ## Tech Stack
 
