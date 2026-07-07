@@ -31,7 +31,7 @@ Instead of fragmenting database logic across dozens of microservices, you route 
 
 Argus is designed as a comprehensive gateway. Its capabilities are separated into six core pillars:
 
-### 🛡️ Security
+### Security
 * **SQL Injection Protection**: AST-based parsing blocks dangerous operators and unauthorized mutations.
 * **Honeypot Detection**: Automatically bans IP addresses that attempt to query fake/decoy tables.
 * **Rate Limiting**: Sliding window rate limits strictly enforced via Redis.
@@ -40,7 +40,7 @@ Argus is designed as a comprehensive gateway. Its capabilities are separated int
 * **Column Masking**: Automatically redacts sensitive columns (e.g., passwords, SSNs) for non-admin roles.
 * **Audit Logging**: Asynchronous tracking of every query executed, including execution plans and latency.
 
-### ⚡ Performance
+### Performance
 * **Query Fingerprinting**: SHA-256 deterministic hashing of AST trees to identify identical queries.
 * **Redis Cache**: Serves repeated queries in under 5ms without touching PostgreSQL.
 * **Table-tagged Invalidation**: Mutations (`INSERT`/`UPDATE`) automatically invalidate cache entries tied to the affected tables.
@@ -48,14 +48,14 @@ Argus is designed as a comprehensive gateway. Its capabilities are separated int
 * **Query Cost Estimation**: Dry-runs `EXPLAIN` to reject massively expensive queries before execution.
 * **Auto LIMIT Injection**: Ensures rogue `SELECT *` queries cannot OOM the gateway.
 
-### 🤖 AI Integration
+### AI Integration
 * **Natural Language → SQL**: Translates human questions into accurate Postgres dialects using Groq LLMs.
 * **AI Schema Chat**: Conversational interface to explore database tables and relationships.
 * **Schema Intelligence**: Extracts schema metadata and maintains a graph of Foreign Key relationships.
 * **Suggested Questions**: AI-generated starter questions tailored to the active database schema.
 * **FK Inference**: Synthetically deduces missing relationships using column heuristics.
 
-### 🔒 Data Protection
+### Data Protection
 * **Envelope Encryption**: Two-tier Master/KEK/DEK hierarchy for data-at-rest protection.
 * **AES-256-GCM**: Cryptographically secure, authenticated symmetric encryption.
 * **Live DEK Rotation**: Allows key rotation with zero downtime.
@@ -63,7 +63,7 @@ Argus is designed as a comprehensive gateway. Its capabilities are separated int
 * **Encryption Audit Logs**: Cryptographic operations are durably logged for SOC2/PCI-DSS compliance.
 * **PII Scanner**: AI agent that scans schemas to identify unencrypted Personally Identifiable Information.
 
-### 📊 Observability
+### Observability
 * **Real-time Metrics**: Tracks cache hit ratios, RPM, and latency percentiles.
 * **Deep Health Checks**: Validates primary/replica Postgres instances and Redis connectivity.
 * **Prometheus Integration**: Exposes unauthenticated `/metrics/live` endpoint.
@@ -71,7 +71,7 @@ Argus is designed as a comprehensive gateway. Its capabilities are separated int
 * **Heatmaps**: Tracks frequently accessed tables for database indexing optimization.
 * **Slow Query Analytics**: Automatically flags queries exceeding the 200ms threshold.
 
-### 💻 Frontend (React UI)
+### Frontend (React UI)
 * **Admin Dashboard**: High-level overview of system metrics and uptime.
 * **Query Studio**: Integrated Monaco editor for writing SQL, testing execution plans, and viewing results.
 * **Schema Explorer**: Interactive node-based visualization (React Flow) of database tables.
@@ -413,18 +413,18 @@ Argus acts as an impenetrable shield for your database.
 
 Argus's architecture is fully documented. Dive deep into specific subsystems:
 
-* 🏛️ **[System Architecture](docs/ARCHITECTURE.md)**: 6-layer component breakdown.
-* 🛡️ **[Envelope Encryption](docs/ENCRYPTION.md)**: DEK/KEK management and live migration.
-* 🌊 **[Request Pipeline](docs/REQUEST_FLOW.md)**: Lifecycle of a query.
-* ⚡ **[Caching Subsystem](docs/CACHE.md)**: Redis strategies and invalidation.
-* 🔒 **[Security Posture](docs/SECURITY.md)**: Honeypots, RBAC, and rate limiters.
-* 🧠 **[Schema Intelligence](docs/SCHEMA_INTELLIGENCE.md)**: Graph BFS routing.
-* 🤖 **[AI Integration](docs/AI.md)**: LLM prompts and deterministic fallbacks.
-* 📊 **[Observability](docs/OBSERVABILITY.md)**: Metrics, async auditing, heatmaps.
-* 🌐 **[API Reference](docs/API.md)**: Complete endpoint specifications.
-* 📈 **[Benchmarks](docs/BENCHMARKS.md)**: Load-testing results.
-* 🏗️ **[Deployment](docs/DEPLOYMENT.md)**: Production readiness checklist.
-* 🗄️ **[Data Models](docs/diagram/datamodels.md)**: ER diagrams.
+* **[System Architecture](docs/ARCHITECTURE.md)**: 6-layer component breakdown.
+* **[Envelope Encryption](docs/ENCRYPTION.md)**: DEK/KEK management and live migration.
+* **[Request Pipeline](docs/REQUEST_FLOW.md)**: Lifecycle of a query.
+* **[Caching Subsystem](docs/CACHE.md)**: Redis strategies and invalidation.
+* **[Security Posture](docs/SECURITY.md)**: Honeypots, RBAC, and rate limiters.
+* **[Schema Intelligence](docs/SCHEMA_INTELLIGENCE.md)**: Graph BFS routing.
+* **[AI Integration](docs/AI.md)**: LLM prompts and deterministic fallbacks.
+* **[Observability](docs/OBSERVABILITY.md)**: Metrics, async auditing, heatmaps.
+* **[API Reference](docs/API.md)**: Complete endpoint specifications.
+* **[Benchmarks](docs/BENCHMARKS.md)**: Load-testing results.
+* **[Deployment](docs/DEPLOYMENT.md)**: Production readiness checklist.
+* **[Data Models](docs/diagram/datamodels.md)**: ER diagrams.
 
 ---
 
