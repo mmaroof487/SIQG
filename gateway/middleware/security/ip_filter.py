@@ -19,6 +19,11 @@ async def check_ip_filter(request: Request):
     is_blocked = await redis.exists(f"argus:ip:blocklist:{client_ip}")
     if is_blocked:
         logger.warning(f"Blocked IP: {client_ip}")
+        # Increment global stats counter for compliance reports
+        try:
+            await redis.incr("argus:stats:blocked_requests")
+        except Exception:
+            pass
         raise HTTPException(status_code=403, detail="Your IP is blocked")
 
     # Check allowlist (if set)
@@ -27,4 +32,9 @@ async def check_ip_filter(request: Request):
         is_allowed = await redis.sismember("argus:ip:allowlist", client_ip)
         if not is_allowed:
             logger.warning(f"IP not in allowlist: {client_ip}")
+            # Increment global stats counter for compliance reports
+            try:
+                await redis.incr("argus:stats:blocked_requests")
+            except Exception:
+                pass
             raise HTTPException(status_code=403, detail="Your IP is not in the allowlist")

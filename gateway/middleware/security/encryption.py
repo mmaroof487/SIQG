@@ -25,20 +25,20 @@ def _encrypt_columns_set() -> set[str]:
     return {c.lower() for c in settings.encrypt_columns_list}
 
 
-def encrypt_value(value: str) -> str:
+def encrypt_value(value: str, key: bytes = None) -> str:
     """Encrypt plaintext using AES-256-GCM and return base64(nonce + ciphertext)."""
     if value is None:
         return value
     if not isinstance(value, str):
         value = str(value)
     nonce = os.urandom(12)
-    aesgcm = AESGCM(_normalized_key())
+    aesgcm = AESGCM(key if key else _normalized_key())
     ciphertext = aesgcm.encrypt(nonce, value.encode("utf-8"), None)
     payload = nonce + ciphertext
     return base64.b64encode(payload).decode("utf-8")
 
 
-def decrypt_value(value: str):
+def decrypt_value(value: str, key: bytes = None):
     """Best-effort decrypt for base64(nonce + ciphertext). Returns original on failure."""
     if value is None or not isinstance(value, str):
         return value
@@ -46,10 +46,11 @@ def decrypt_value(value: str):
         data = base64.b64decode(value.encode("utf-8"))
         nonce = data[:12]
         ciphertext = data[12:]
-        aesgcm = AESGCM(_normalized_key())
+        aesgcm = AESGCM(key if key else _normalized_key())
         plaintext = aesgcm.decrypt(nonce, ciphertext, None)
         return plaintext.decode("utf-8")
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Decryption failed, returning original value: {e}")
         return value
 
 

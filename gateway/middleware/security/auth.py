@@ -2,20 +2,17 @@
 import hashlib
 import hmac
 import time
+import bcrypt
 from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, Request, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from config import settings
 from utils.logger import get_logger
 import json
 
 logger = get_logger(__name__)
 security = HTTPBearer(auto_error=False)
-
-# Password hashing context - bcrypt only (no deprecated schemes)
-pwd_context = CryptContext(schemes=["bcrypt"])
 
 
 def create_jwt(user_id: str, role: str) -> str:
@@ -41,12 +38,16 @@ def decode_jwt(token: str) -> dict:
 
 def hash_password(password: str) -> str:
     """Hash a password."""
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
 def verify_password(plain: str, hashed: str) -> bool:
     """Verify a password against hash."""
-    return pwd_context.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+    except Exception:
+        return False
 
 
 def hash_api_key(raw_key: str) -> str:
@@ -55,6 +56,29 @@ def hash_api_key(raw_key: str) -> str:
 
 
 
+
+
+async def validate_hmac_signature(request: Request) -> None:
+    """
+    Validate HMAC signature from X-HMAC-Signature header.
+    Raises HTTPException if signature is invalid.
+    """
+    signature = request.headers.get("X-HMAC-Signature")
+    if not signature:
+        # If signature is not provided, we allow it to pass or we can require it.
+        # Typically, for webhooks we'd require it.
+        return
+
+    # To read the body without consuming it permanently:
+    body = await request.body()
+    expected_signature = hmac.new(
+        settings.secret_key.encode(),
+        body,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=403, detail="Invalid HMAC signature")
 
 
 async def validate_api_key_scope(request: Request, query: str, extracted_tables: list[str]) -> None:
@@ -114,7 +138,7 @@ async def get_current_user(
     For API keys, also retrieves scoping restrictions (allowed tables, query types).
     """
     # Try JWT Bearer token from cookie first, then Authorization header
-    token = request.cookies.get("token")
+    token = request.cookies.get("argus_token")
     if not token and credentials:
         token = credentials.credentials
 

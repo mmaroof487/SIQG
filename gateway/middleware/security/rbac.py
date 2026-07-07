@@ -173,7 +173,7 @@ async def check_time_based_access(request: Request):
     Raises HTTPException if access is not allowed at the current time.
     """
     from datetime import datetime
-    import pytz
+    from zoneinfo import ZoneInfo
 
     role = getattr(request.state, "role", "guest")
     time_rules = settings.time_based_rbac
@@ -189,10 +189,10 @@ async def check_time_based_access(request: Request):
 
     # Parse timezone
     try:
-        tz = pytz.timezone(timezone_str)
+        tz = ZoneInfo(timezone_str)
     except Exception:
         logger.warning(f"Invalid timezone: {timezone_str}, using UTC")
-        tz = pytz.UTC
+        tz = ZoneInfo("UTC")
 
     # Get current time in the specified timezone
     now = datetime.now(tz)

@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 INJECTION_PATTERNS = [
     r"(?i)(\bOR\b\s+\d+\s*=\s*\d+)",  # OR 1=1
     r"(?i)(\bOR\b\s+'[^']*'\s*=\s*'[^']*')",  # OR 'a'='a'
-    r"(?i)(UNION\s+(ALL\s+)?SELECT)",  # UNION SELECT / UNION ALL SELECT
+    r"(?i)\bUNION\b[\s\(\/\*]*(?:ALL[\s\(\/\*]*)?\bSELECT\b",  # UNION SELECT / UNION ALL SELECT (handles comments and parentheses)
     r"(?i)(EXEC\s*\()",  # EXEC
     r"(?i)(EXECUTE\s*\()",  # EXECUTE
     r"(?i)(;\s*(?:DROP|ALTER|COPY|TRUNCATE|DELETE|GRANT|REVOKE|UPDATE))",  # Stacked dangerous
@@ -30,14 +30,14 @@ def detect_sql_injection(query: str) -> bool:
     """Detect common SQL injection patterns using sqlparse and regex."""
     try:
         import sqlparse
-        # Strip comments using a proper parser to avoid false positives inside strings
-        clean_query = sqlparse.format(query, strip_comments=True)
+        # Do not strip comments, as that hides the injection payload from the regex scanner
+        clean_query = sqlparse.format(query, keyword_case='upper')
     except ImportError:
         logger.warning("sqlparse not installed, falling back to raw query")
-        clean_query = query
+        clean_query = query.upper()
 
     for pattern in INJECTION_PATTERNS:
-        if re.search(pattern, clean_query):
+        if re.search(pattern, clean_query, re.IGNORECASE):
             logger.warning(f"SQL injection detected: {query[:100]}")
             return True
     return False
