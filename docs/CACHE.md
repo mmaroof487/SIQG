@@ -15,7 +15,7 @@ graph TD
         HASH --> SCOPE[Append User Role]
     end
     
-    SCOPE --> KEY[Cache Key: 'argus:cache:{role}:{hash}']
+    SCOPE --> KEY["Cache Key: 'argus:cache:{role}:{hash}'"]
     
     KEY --> LOOKUP{Redis GET}
     
