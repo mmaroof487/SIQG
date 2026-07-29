@@ -630,7 +630,7 @@ export default function SchemaBrowserPage() {
                                     }
                                     // Add rule
                                     const res = await api.addColumnEncryption(selectedConnectionId, {
-                                      schema_name: currentSchema.schema,
+                                      schema_name: currentSchema.database_schema,
                                       table_name: table.name,
                                       column_name: col.name,
                                       classification_method: 0,

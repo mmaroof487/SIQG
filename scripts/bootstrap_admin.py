@@ -11,7 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "g
 
 from utils.db import init_db, PrimarySession
 from models import User
-from middleware.security.auth import get_password_hash
+from middleware.security.auth import hash_password
 from sqlalchemy import select
 
 async def main():
@@ -50,9 +50,10 @@ async def main():
             sys.exit(1)
             
         if len(password) < 12:
-            print("Warning: Password should ideally be at least 12 characters long.")
+            print("Error: Password must be at least 12 characters long.")
+            sys.exit(1)
             
-        hashed_pw = get_password_hash(password)
+        hashed_pw = hash_password(password)
         
         admin_user = User(
             id=uuid.uuid4(),

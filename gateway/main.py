@@ -29,9 +29,14 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Argus Gateway")
 
     # 1. Configuration Validation
-    if not settings.encryption_key and settings.key_provider == "env":
-        logger.error("❌ CRITICAL: ENCRYPTION_KEY is missing but key_provider is 'env'.")
-        raise RuntimeError("Missing ENCRYPTION_KEY")
+    _KNOWN_DUMMY_KEYS = {
+        "dummy_development_master_key_123",
+        "12345678901234567890123456789012",
+        "",
+    }
+    if settings.key_provider == "env" and settings.encryption_key in _KNOWN_DUMMY_KEYS:
+        logger.error("❌ CRITICAL: ENCRYPTION_KEY is not set to a real value. Refusing to start.")
+        raise RuntimeError("ENCRYPTION_KEY is not set to a real value. Refusing to start.")
     
     if settings.ai_enabled and settings.ai_provider != "mock":
         if settings.ai_provider == "openai" and not settings.openai_api_key:

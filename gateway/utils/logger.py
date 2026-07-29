@@ -33,7 +33,7 @@ def get_logger(name: str) -> logging.Logger:
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
         # Configure format string for pythonjsonlogger
-        formatter = OTelJsonFormatter('%(timestamp)s %(level)s %(name)s %(message)s', rename_fields={"asctime": "timestamp"})
+        formatter = OTelJsonFormatter('%(asctime)s %(levelname)s %(name)s %(message)s', rename_fields={"asctime": "timestamp", "levelname": "level"})
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)

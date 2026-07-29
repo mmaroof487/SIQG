@@ -9,7 +9,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { Link } from "react-router-dom";
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { role, logout } = useAuth();
+  const username = role === 'admin' ? 'Administrator' : 'User';
   const [budget, setBudget] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,10 +44,10 @@ export default function SettingsPage() {
             <User className="w-10 h-10 text-primary-neon drop-shadow-[0_0_8px_#00FF9D]" />
           </div>
           <div>
-            <h1 className="text-3xl font-black text-on-surface mb-2 tracking-tight">{user?.username || 'User'}</h1>
+            <h1 className="text-3xl font-black text-on-surface mb-2 tracking-tight">{username}</h1>
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-3 py-1 bg-surface-high rounded-full text-[10px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
-                <ShieldAlert className="w-3 h-3" /> {user?.role || 'Member'}
+                <ShieldAlert className="w-3 h-3" /> {role || 'Member'}
               </span>
               <span className="px-3 py-1 bg-primary-neon/10 border border-primary-neon/20 rounded-full text-[10px] font-bold uppercase tracking-wider text-primary-neon flex items-center gap-1.5">
                 <Zap className="w-3 h-3" /> Default Tier

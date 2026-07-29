@@ -13,16 +13,32 @@ async def check_cache(
     query: str,
     role: str,
     conn_scope: str = "default",
+    user_id: str = "anonymous",
+    masking_policy_version: str = "default",
 ) -> Optional[Any]:
     """
     Check if query result is in cache.
-    Cache key includes: conn_scope + query_fingerprint + role
-    conn_scope is 'default' for internal queries, or connection_id for external ones.
+
+    Cache key components (ALL are security-relevant — do not remove any):
+      conn_scope            : connection / tenant scope
+      query_fingerprint     : normalised query hash
+      role                  : user's RBAC role
+      user_id               : individual user — prevents cross-user cache sharing
+      masking_policy_version: hash/version of active masking rules — changing the
+                              policy without bumping this version would serve stale,
+                              unmasked results to users whose policy was tightened.
+
+    DESIGN DECISION — Redis fail-open:
+      If Redis is unavailable, check_cache returns None (cache miss) rather than
+      raising an exception. This is intentional: we prefer a slower correct response
+      over a 500 error or a security-boundary-violating fallback.
+      Do NOT change this to fail-closed without also implementing a fallback path
+      for rate limiting and brute-force detection, which also rely on Redis.
     """
     redis = request.app.state.redis
     fingerprint = fingerprint_cache_key(query)
-    cache_key = f"argus:cache:{conn_scope}:{fingerprint}:{role}"
-    meta_key = f"argus:cache_meta:{conn_scope}:{fingerprint}:{role}"
+    cache_key = f"argus:cache:{conn_scope}:{fingerprint}:{role}:{user_id}:{masking_policy_version}"
+    meta_key = f"argus:cache_meta:{conn_scope}:{fingerprint}:{role}:{user_id}:{masking_policy_version}"
 
     try:
         cached_result = await redis.get(cache_key)
@@ -59,11 +75,18 @@ async def write_cache(
     result: Any,
     ttl: int = None,
     conn_scope: str = "default",
+    user_id: str = "anonymous",
+    masking_policy_version: str = "default",
 ):
     """
-    Write query result to cache with table-tagged invalidation.
-    Periodically cleans stale tag references to prevent unbounded tag set growth.
-    conn_scope is 'default' for internal queries, or connection_id for external ones.
+    Write the final post-decryption, post-masking response into the cache.
+
+    IMPORTANT: The caller MUST pass the fully-processed result (decrypted + masked).
+    Ciphertext or unmasked data must NEVER be written here — doing so would allow
+    a cache hit to bypass the decryption and masking pipeline on subsequent requests.
+
+    See check_cache() for full documentation of the cache key components and the
+    intentional Redis fail-open design decision.
     """
     if ttl is None:
         from config import settings
@@ -75,9 +98,9 @@ async def write_cache(
     # Extract affected tables
     tables = extract_tables_from_query(query)
 
-    # Cache key: argus:cache:{conn_scope}:{fingerprint}:{role}
-    cache_key = f"argus:cache:{conn_scope}:{fingerprint}:{role}"
-    meta_key = f"argus:cache_meta:{conn_scope}:{fingerprint}:{role}"
+    # Cache key: argus:cache:{conn_scope}:{fingerprint}:{role}:{user_id}:{masking_policy_version}
+    cache_key = f"argus:cache:{conn_scope}:{fingerprint}:{role}:{user_id}:{masking_policy_version}"
+    meta_key = f"argus:cache_meta:{conn_scope}:{fingerprint}:{role}:{user_id}:{masking_policy_version}"
 
     try:
         # Store result
