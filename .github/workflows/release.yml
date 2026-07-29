@@ -13,10 +13,10 @@ jobs:
       packages: write
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: "3.12"
         
@@ -29,14 +29,8 @@ jobs:
       run: |
         python scripts/benchmark.py > benchmark_report.md || echo "Benchmark failed" > benchmark_report.md
         
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-        
     - name: Log in to the Container registry
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -44,14 +38,13 @@ jobs:
         
     - name: Extract metadata (tags, labels) for Docker
       id: meta
-      uses: docker/metadata-action@v4
+      uses: docker/metadata-action@v5
       with:
         images: |
-          argus-gateway
           ghcr.io/${{ github.repository }}/argus-gateway
           
     - name: Build and push Docker images
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v5
       with:
         context: .
         push: true
@@ -59,9 +52,9 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
-        body_path: RELEASE_NOTES.md
+        body_path: RELEASE_v1.0.0.md
         files: |
           benchmark_report.md
       env:
