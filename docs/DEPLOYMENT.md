@@ -51,8 +51,37 @@ alembic upgrade head
 
 ## Production Recommendations
 
-1. **Reverse Proxy (HTTPS)**: Do not expose Uvicorn directly to the internet. Deploy Argus behind Nginx, HAProxy, or an API Gateway (like AWS API Gateway) to handle TLS termination and HTTPS.
+1. **Reverse Proxy (HTTPS)**: Do not expose Uvicorn directly to the internet. Deploy Argus behind Nginx, HAProxy, or an API Gateway (like AWS API Gateway) to handle TLS termination and HTTPS. HTTPS is required for `Secure` session cookies to function.
 2. **Redis Persistence**: Configure Redis with AOF (Append Only File) to ensure rate limit and circuit breaker states survive container restarts.
 3. **Database Credentials**: Replace the default `argus:argus` credentials immediately.
 4. **JWT Secrets**: Generate a cryptographically secure 32+ byte key for `JWT_SECRET`.
 5. **Horizontal Scaling**: The Argus Gateway is stateless (all state is in Redis/Postgres). You can run multiple instances of the gateway container behind a load balancer.
+
+## Frontend Production Build
+
+If deploying the frontend independently from Docker, you must build the Vite application. Given the size of the TypeScript dependency tree, ensure you increase Node's memory limit to avoid heap exhaustion:
+
+```bash
+cd frontend-ts
+npm install
+NODE_OPTIONS="--max-old-space-size=4096" npx vite build
+```
+The resulting static files will be in `frontend-ts/dist/`. Serve these via Nginx or any static hosting provider.
+
+## Pre-Deployment Verification
+
+Before routing production traffic to Argus, run the included operational verification scripts from the root directory:
+
+```bash
+# 1. Dependency, Secret, and Environment Audit
+python scripts/pre_deploy_checks.py
+
+# 2. Bootstrap the Admin User (Interactive or Env Var driven)
+python scripts/bootstrap_admin.py
+
+# 3. Verify Redis rate-limits and Caching resilience
+python scripts/stress_test.py
+
+# 4. Measure end-to-end latency percentiles
+python scripts/benchmark.py
+```

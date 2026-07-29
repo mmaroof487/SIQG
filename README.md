@@ -1,7 +1,7 @@
 <div align="center">
   <img src="frontend-ts/public/argus-logo.png" width="120" alt="Argus Sentinel Logo" />
   <h1>Argus — Secure Intelligent Query Gateway</h1>
-  <p>A production-ready middleware that sits between your applications and PostgreSQL, providing zero-trust security, intelligent caching, LLM integration, and transparent envelope encryption.</p>
+  <p>A production-ready AI-powered SQL gateway using FastAPI, React, PostgreSQL, Redis, and Groq LLMs. Argus implements role-aware query caching, envelope encryption with live DEK rotation, AST-based SQL validation, schema intelligence, observability, and a comprehensive automated testing pipeline.</p>
 
   <!-- Badges -->
   <a href="https://github.com/mmaroof487/SIQG/actions"><img src="https://github.com/mmaroof487/SIQG/actions/workflows/ci.yml/badge.svg" alt="CI Status" /></a>
@@ -10,6 +10,13 @@
   <img src="https://img.shields.io/badge/Python-3.11-blue?style=flat-square&logo=python" alt="Python Version" />
   <img src="https://img.shields.io/badge/React-18-blue?style=flat-square&logo=react" alt="React Version" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker Ready" />
+</div>
+
+> **Watch the Demo:** [▶️ Argus 5-Minute Walkthrough](https://youtube.com/your-demo-link)
+
+<div align="center">
+  <!-- Placeholder for a GIF or Screenshot of the dashboard -->
+  <img src="docs/assets/dashboard-preview.png" alt="Argus Dashboard Preview" width="800" />
 </div>
 
 ---

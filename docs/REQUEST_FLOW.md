@@ -74,7 +74,7 @@ sequenceDiagram
 #### 3. Security Layer (L1)
 - **Rate Limiting**: Enforces strict role-based buckets (e.g., Admin: 500/min, Readonly: 60/min).
 - **RBAC**: Ensures the user has permissions for the target tables.
-- **SQL Validation**: Blocks `DROP`, `TRUNCATE`, and queries targeting sensitive columns like `hashed_password` directly.
+- **SQL Validation**: AST parser strictly blocks `DROP`, `TRUNCATE`, `ALTER`, and queries targeting sensitive columns like `hashed_password` directly.
 - **Honeypot**: If decoy tables are accessed, the IP is instantly banned.
 
 #### 4. Performance Layer (L2)

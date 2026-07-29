@@ -8,11 +8,11 @@ Security is Argus's strongest selling point. The gateway operates on a Zero Trus
 - **JWT**: Tokens are signed using HS256 with a 60-minute expiry.
 - **Refresh Flow**: Tokens can be refreshed, but a 5-minute grace window is enforced to prevent replay abuse.
 - **State Verification**: The `is_active` flag is checked on every login and refresh to instantly disable compromised accounts.
-- **Frontend Storage**: *(Planned)* Migrating JWT storage from `localStorage` to `HttpOnly` cookies to mitigate XSS risks.
+- **Frontend Storage**: JWT tokens are securely stored in `HttpOnly`, `Secure`, and `SameSite=Strict` cookies to mitigate XSS risks, completely avoiding `localStorage`.
 
 ### 2. SQL Validation & Sanitization
-Argus uses 13+ regex patterns to detect and block SQL injection vectors before they can be executed by the PostgreSQL driver.
-- **Command Blocking**: `DROP`, `TRUNCATE`, and `EXEC` are hard-blocked.
+Argus parses incoming SQL strings into an Abstract Syntax Tree (AST) using `sqlglot` to comprehensively detect and block SQL injection vectors and unauthorized mutations before they reach the database.
+- **Command Blocking**: `DROP`, `TRUNCATE`, `ALTER`, and `EXEC` are hard-blocked at the parser level.
 - **Sensitive Column Blocking**: Direct queries targeting columns like `hashed_password`, `token`, and `api_key` are rejected.
 
 ### 3. Honeypots
